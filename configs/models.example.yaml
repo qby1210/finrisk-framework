@@ -1,0 +1,14 @@
+# 模型配置示例，具体模型后续由负责人确定。
+case_classifier:
+  name: pending
+  version: pending
+case_llm_reviewer:
+  name: pending
+  version: pending
+  prompt_version: pending
+query_classifier:
+  name: pending
+  version: pending
+embedding:
+  name: pending
+  version: pending
