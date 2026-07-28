@@ -8,8 +8,16 @@ Offline 负责人主要修改：
     scripts/run_offline_pipeline.py
     tests/offline/
 
-负责案例文件读取、标准化、独立分类模型、大模型复核、标签融合、增强和 Embedding。
+负责消费统一文件读取结果，并实现案例标准化、独立分类模型、大模型复核、标签融合、增强和 Embedding。
 
+共享文件读取负责人主要修改：
+
+    src/extraction/
+    src/domain/file_models.py
+    configs/extraction.example.yaml
+    tests/extraction/
+
+负责 PDF、图片、TXT、DOCX、RapidOCR、坐标和文本偏移。Offline 与 Query 负责人不得复制格式解析代码。
 风险负责人主要修改：
 
     src/query/
@@ -63,7 +71,7 @@ Offline 负责人主要修改：
 
 ## 建议分支
 
-    feature/offline-extraction
+    feature/file-extraction
     feature/offline-case-labeling
     feature/offline-embedding
     feature/query-classification

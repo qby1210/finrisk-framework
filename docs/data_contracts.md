@@ -32,10 +32,12 @@
 | media_type | str | 是 | 文件 MIME 类型 |
 | checksum_sha256 | str | 是 | 文件 SHA-256 |
 | file_size_bytes | int | 是 | 文件字节数 |
-| full_text | str | 是 | 按阅读顺序合并的完整文本 |
-| pages | list | 否 | 每页页码、文本和 OCR 状态 |
+| full_text | str | 是 | 按页码和阅读顺序合并的完整文本 |
+| page_count | int | 是 | 文件总页数 |
+| ocr_page_count | int | 是 | 实际使用 OCR 的页数 |
+| pages | list | 否 | 每页文本、位置、置信度和读取状态 |
 | tables | list | 否 | 提取表格的页码、标题和行数据 |
-| extraction_method | str | 是 | text_layer、ocr、docx 等主要读取方式 |
+| extraction_method | enum | 是 | pdf_text、rapidocr、hybrid、plain_text 或 docx |
 | extraction_status | enum | 是 | succeeded、partial 或 failed |
 | quality_score | float | 否 | 读取质量分数 |
 | warnings | list[str] | 否 | 缺页、乱码、OCR 失败等警告 |
@@ -50,6 +52,34 @@
 - Query 文件读取结果存放在 data/interim/extracted_query。
 - 原始文件不得因读取过程被修改。
 
+
+### PageContent 和原文定位字段
+
+每个 PageContent 保存：
+
+- page_number：从 1 开始的页码；
+- width、height：原始页面尺寸；
+- text：该页按阅读顺序合并的文本；
+- blocks：行或段落级 TextBlock；
+- words：字词级 WordContent；
+- used_ocr：该页是否调用 RapidOCR；
+- average_confidence：OCR 平均置信度；
+- quality_score：页面综合读取质量；
+- extraction_method：该页实际读取方式；
+- warnings：页面级警告。
+
+TextBlock 和 WordContent 都保存：
+
+- 页面内稳定标识、页码、文本和阅读顺序；
+- OCR confidence，原生文本层对应值为空；
+- polygon：四个 NormalizedPoint 组成的四边形；
+- page_start_offset、page_end_offset：页文本中的字符范围；
+- document_start_offset、document_end_offset：full_text 中的字符范围；
+- extraction_method：该元素来自原生文本层还是 RapidOCR。
+
+polygon 坐标已经除以页面宽高，x 和 y 均在 0 到 1 之间。网页展示时分别乘以当前渲染宽高，不得当作原始像素使用。字词无法与合并文本可靠对齐时，偏移允许为空，但坐标仍保留。
+
+PDF 使用原生文本层优先策略。只有字符数或质量分数低于配置阈值时，才把该页渲染为图片并调用 RapidOCR。混合 PDF 可以同时包含 pdf_text 和 rapidocr 页面，文件级 extraction_method 记录为 hybrid。
 ## 2. 标准化案例
 
 代码模型：NormalizedCase

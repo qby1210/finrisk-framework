@@ -26,6 +26,17 @@ class ExtractionStatus(StrEnum):
     FAILED = "failed"
 
 
+
+
+class ExtractionMethod(StrEnum):
+    """文件或页面实际使用的读取方式。"""
+
+    PDF_TEXT = "pdf_text"
+    RAPIDOCR = "rapidocr"
+    HYBRID = "hybrid"
+    PLAIN_TEXT = "plain_text"
+    DOCX = "docx"
+
 class LabelSource(StrEnum):
     """案例风险标签的产生来源。"""
 

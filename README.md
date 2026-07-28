@@ -1,6 +1,6 @@
 # FinRisk 后端框架
 
-这是金融风险识别比赛项目的后端目录骨架。当前阶段只确认目录、模块边界和四类跨模块字段，不实现 API、Web、文件读取、模型推理、向量数据库或业务流程。
+这是金融风险识别比赛项目的后端框架。当前已实现案例和 Query 共用的文件读取模块；API、Web、风险模型、案例标签模型和向量数据库仍未实现。
 
 ## 当前确认范围
 
@@ -11,7 +11,7 @@
 3. 最终案例记录：FinalCaseRecord
 4. Query 分类增强结果：EnhancedQuery
 
-其余 Python 文件只有中文用途说明，没有函数、接口或算法实现。
+src/extraction 已实现文件读取；Offline 和 Query 只提供对应用途的薄入口。其他业务模块仍只有中文用途说明。
 
 ## 目录
 
@@ -34,12 +34,25 @@
     │  └─ run_risk_pipeline.py      # Query 风险流程脚本占位
     ├─ src/
     │  ├─ domain/                   # 全项目共享字段
+    │  ├─ extraction/               # 文件读取处理
     │  ├─ offline/                  # 案例离线构建
     │  ├─ query/                    # Query 输入、分类和增强
     │  ├─ risk/                     # Query 多层次风险检测
     │  └─ application/              # 案例管理和向量检索入口
     └─ tests/                       # 按模块存放后续测试
 
+## 文件读取
+
+共享入口位于 src/extraction，当前支持：
+
+- PDF：使用 PyMuPDF 优先读取原生文本层，低质量页面自动转图片并调用 RapidOCR；
+- PNG、JPEG、BMP、TIFF、WebP：使用 RapidOCR；
+- TXT、Markdown：按 UTF-8 或 GB18030 读取；
+- DOCX：读取段落和表格，因格式限制不提供稳定物理页码。
+
+RapidOCR 按官方文档使用 rapidocr 和 onnxruntime。默认延迟创建 OCR 引擎，只有实际需要 OCR 时才加载模型。
+
+读取结果保存页级文本、行级文本块、字词、OCR 置信度、归一化四边形坐标以及页内和全文字符偏移，可用于后续网页原文风险位置展示。
 ## 两条独立链路
 
 离线案例链路：
@@ -83,10 +96,11 @@ Query 风险链路：
 
 检查字段模型：
 
-    uv run ruff check src scripts
-    uv run mypy src/domain
+    uv run ruff check src tests scripts
+    uv run mypy src
+    uv run pytest
 
-当前没有业务实现和测试代码，因此两个脚本不能处理真实文件。
+当前可以直接调用 FileExtractor、extract_case_file 或 extract_query_file 读取文件；流程脚本仍未实现。
 
 ## 开发顺序
 

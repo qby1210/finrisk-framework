@@ -20,6 +20,12 @@
 
 所有模块都可以依赖 Domain。Domain 不依赖其他业务模块。
 
+
+## 共享文件读取
+
+extraction 是 Offline 和 Query 共同依赖的基础模块，负责 PDF、图片、文本和 DOCX 读取。它只能依赖 Domain 和第三方文件解析库，不能依赖 Offline、Query、Risk 或 Application。
+
+Offline 和 Query 入口只设置 file_purpose、source_uri 和业务元数据，不复制文件解析逻辑。
 ## 离线案例链路
 
 Offline 负责：
