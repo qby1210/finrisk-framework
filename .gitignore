@@ -12,6 +12,7 @@ data/raw/query/*
 data/interim/extracted_cases/*
 data/interim/extracted_query/*
 data/interim/normalized_cases/*
+data/interim/train_data/*
 data/processed/cases/*
 data/processed/knowledge/*
 !data/**/.gitkeep

@@ -1,74 +1,108 @@
-"""Query 文件级分类、句子切分和增强测试。"""
+"""六类 Query 场景分类、切句和原文映射测试。"""
 
-import json
-from pathlib import Path
+import asyncio
 
 import pytest
 
 from domain.common import QueryInputType
-from domain.query_models import QueryClassificationMethod, QuerySceneLabel
-from query.classification import (
-    QuerySceneClassifier,
-    TrainingDataError,
-    load_training_examples,
-)
-from query.enhancement import enhance_query, split_sentences
+from domain.query_models import QueryClassificationMethod, QueryScene
+from llm.types import JsonChatRequest, JsonChatResponse
+from query.classification import LLMRequiredError, QuerySceneClassifier
+from query.enhancement import prepare_query, split_sentences
+
+
+class FakeLLMClient:
+    """返回固定六类 JSON 结果的假大模型。"""
+
+    def __init__(self, scene: QueryScene) -> None:
+        self.scene = scene
+        self.call_count = 0
+
+    @property
+    def model_name(self) -> str:
+        return "fake-local-model"
+
+    async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
+        self.call_count += 1
+        assert request.messages
+        return JsonChatResponse(
+            data={
+                "scene": self.scene.value,
+                "confidence": 0.88,
+                "reason": "材料主要用于会议活动",
+            },
+            model=self.model_name,
+        )
 
 
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
         (
-            "限时专享活动火热开启，立即扫码了解产品详情。",
-            QuerySceneLabel.MARKETING_CONTENT,
+            "营销海报：限时活动，立即扫码领取专属权益。",
+            QueryScene.ST1_POSTER_SMS_SOCIAL,
         ),
         (
-            "第一条 为规范业务办理制定本办法，各机构应当遵照执行。",
-            QuerySceneLabel.FORMAL_DOCUMENT,
+            "直播脚本：主播欢迎家人们来到直播间，三二一上链接，点击小黄车。",
+            QueryScene.ST2_LIVE_SHORT_VIDEO,
         ),
         (
-            "客户：这款产品可以赎回吗？顾问：您好，我帮您查看相关约定。",
-            QuerySceneLabel.CUSTOMER_COMMUNICATION,
+            "产品详情：产品名称稳健一号，风险等级R2，投资期限一年，起购金额一万元，支持申购和赎回。",
+            QueryScene.ST3_PRODUCT_INTRO_DETAIL,
+        ),
+        (
+            "客户答谢会材料。会议议程包括签到、开场致辞、嘉宾介绍和茶歇。",
+            QueryScene.ST4_MEETING_MATERIAL,
+        ),
+        (
+            "电销话术培训材料：坐席：您好，本次致电是进行客户回访；客户：好的。随后进入异议处理流程。",
+            QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        ),
+        (
+            "说服语言越精炼越好。推销话术示例：如果您认为薪水赚来不易，请考虑家人需要的保障。",
+            QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        ),
+        (
+            "行政处罚决定书：经查，该机构违反相关规定，决定给予警告并处罚款。",
+            QueryScene.ST6_PENALTY_BACKEND_FACT,
         ),
     ],
 )
-def test_rule_classifier_recognizes_primary_scenes(
-    tmp_path: Path,
-    text: str,
-    expected: QuerySceneLabel,
-) -> None:
-    """强场景特征应在没有训练数据时由规则准确分类。"""
+def test_high_confidence_rules_cover_six_scenes(text: str, expected: QueryScene) -> None:
+    """六类明确材料应由高置信规则直接输出。"""
 
-    result = QuerySceneClassifier(tmp_path).classify(text)
+    fake_llm = FakeLLMClient(QueryScene.ST1_POSTER_SMS_SOCIAL)
+    classifier = QuerySceneClassifier(fake_llm)
 
-    assert result.selected_category.category_code is expected
-    assert result.classification_method is QueryClassificationMethod.RULE
-    assert result.is_abstained is False
-    assert result.classification_evidence
+    result = asyncio.run(classifier.classify(text))
 
-
-def test_classifier_abstains_when_scene_evidence_is_missing(tmp_path: Path) -> None:
-    """没有可靠场景证据时不得强行三选一。"""
-
-    result = QuerySceneClassifier(tmp_path).classify("今天更新了一些内容")
-
-    assert result.selected_category.category_code is QuerySceneLabel.UNKNOWN_OR_MIXED
-    assert result.classification_method is QueryClassificationMethod.ABSTAINED
-    assert result.is_abstained is True
-    assert result.augmentation_terms == []
+    assert result.scene is expected
+    assert result.method is QueryClassificationMethod.RULE
+    assert result.evidence
+    assert fake_llm.call_count == 0
 
 
-def test_classifier_ignores_unknown_source_metadata(tmp_path: Path) -> None:
-    """场景分类必须只使用文本，不依赖无法确定的来源字段。"""
+def test_ambiguous_rule_result_uses_llm() -> None:
+    """规则重复命中且差距不足时必须交给 LLM 唯一分类。"""
 
-    classifier = QuerySceneClassifier(tmp_path)
-    without_metadata = classifier.classify("今天更新了一些内容")
-    with_metadata = classifier.classify(
-        "今天更新了一些内容",
-        metadata={"source_channel": "poster"},
-    )
+    fake_llm = FakeLLMClient(QueryScene.ST4_MEETING_MATERIAL)
+    classifier = QuerySceneClassifier(fake_llm)
 
-    assert with_metadata == without_metadata
+    result = asyncio.run(classifier.classify("直播间产品说明会材料，主播负责开场致辞。"))
+
+    assert result.scene is QueryScene.ST4_MEETING_MATERIAL
+    assert result.method is QueryClassificationMethod.LLM
+    assert result.llm_model == "fake-local-model"
+    assert fake_llm.call_count == 1
+
+
+def test_low_confidence_requires_configured_llm() -> None:
+    """规则无法可靠分类且无 LLM 时必须显式失败，不得猜测场景。"""
+
+    classifier = QuerySceneClassifier(None)
+
+    with pytest.raises(LLMRequiredError):
+        asyncio.run(classifier.classify("这是今天整理的一份材料。"))
 
 
 def test_sentence_split_preserves_text_and_offsets() -> None:
@@ -83,149 +117,41 @@ def test_sentence_split_preserves_text_and_offsets() -> None:
     ]
 
 
-def test_enhancement_repeats_file_classification_for_each_sentence(tmp_path: Path) -> None:
-    """同一文件切出的所有句子必须继承统一文件级分类。"""
+def test_soft_line_break_does_not_split_ocr_sentence() -> None:
+    """OCR 行尾软换行应留在句内，项目符号仍可形成新句。"""
 
-    classifier = QuerySceneClassifier(tmp_path)
-    result = enhance_query(
-        "第一条 本办法自发布之日起生效。第二条 各部门应当遵照执行。",
-        classifier,
-        input_type=QueryInputType.TEXT,
+    text = "我们不知道明天会\n发生什么事。\n·下一条完整话术。"
+    sentences = split_sentences(text)
+
+    assert [sentence.text for sentence in sentences] == [
+        "我们不知道明天会\n发生什么事。",
+        "·下一条完整话术。",
+    ]
+    assert all(text[item.start_offset : item.end_offset] == item.text for item in sentences)
+
+
+def test_risk_sentence_has_exact_four_fields_and_text_mapping() -> None:
+    """Risk 输入严格四字段，定位表可以还原文字输入中的原句。"""
+
+    text = "营销海报，限时参与！立即扫码领取权益。"
+    result = asyncio.run(
+        prepare_query(
+            text,
+            QuerySceneClassifier(None),
+            input_type=QueryInputType.TEXT,
+        )
     )
 
     assert len(result.sentences) == 2
-    assert {sentence.category.category_code for sentence in result.sentences} == {
-        QuerySceneLabel.FORMAL_DOCUMENT
+    assert set(result.sentences[0].model_dump()) == {
+        "query_id",
+        "sentence_id",
+        "scene",
+        "text",
     }
-    assert all("[QUERY_SCENE=formal_document]" in item.enhanced_text for item in result.sentences)
-
-
-def test_training_loader_uses_exact_four_field_schema(tmp_path: Path) -> None:
-    """真实训练数据固定使用 sample_id、text、scene、risk_label。"""
-
-    template = tmp_path / "query_scene_train.example.jsonl"
-    template.write_text(
-        json.dumps(
-            {
-                "sample_id": "template",
-                "text": "模板内容",
-                "scene": "formal_document",
-                "risk_label": "no_obvious_risk",
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    training = tmp_path / "query_scene_train.jsonl"
-    training.write_text(
-        json.dumps(
-            {
-                "sample_id": "real_001",
-                "text": "第一条 本办法自发布之日起生效。",
-                "scene": "formal_document",
-                "risk_label": "no_obvious_risk",
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    examples = load_training_examples(tmp_path)
-
-    assert [example.sample_id for example in examples] == ["real_001"]
-    assert examples[0].scene is QuerySceneLabel.FORMAL_DOCUMENT
-    assert examples[0].risk_label == "no_obvious_risk"
-    assert set(examples[0].model_dump()) == {"sample_id", "text", "scene", "risk_label"}
-
-
-def test_training_loader_rejects_source_and_notes_fields(tmp_path: Path) -> None:
-    """来源和备注等额外字段不得进入新的训练数据契约。"""
-
-    (tmp_path / "query_scene_train.jsonl").write_text(
-        json.dumps(
-            {
-                "sample_id": "invalid_001",
-                "text": "限时活动立即参与。",
-                "scene": "marketing_content",
-                "risk_label": "no_obvious_risk",
-                "source_channel": "poster",
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(TrainingDataError):
-        load_training_examples(tmp_path)
-
-
-def test_classifier_trains_model_when_each_scene_has_enough_data(tmp_path: Path) -> None:
-    """三类 scene 数据达到下限后应启用轻量分类模型。"""
-
-    rows: list[str] = []
-    texts_by_scene = {
-        "marketing_content": [
-            "夏日活动立即参与",
-            "专属优惠点击领取",
-            "产品亮点火热发布",
-            "扫码查看营销海报",
-            "名额有限欢迎预约",
-        ],
-        "formal_document": [
-            "第一条制定本办法",
-            "本协议经双方签署生效",
-            "各机构应当遵照执行",
-            "关于流程调整的正式通知",
-            "甲乙双方约定权利义务",
-        ],
-        "customer_communication": [
-            "客户：我可以办理吗",
-            "客服：您好我帮您查询",
-            "请问您现在方便吗",
-            "顾问与客户聊天记录",
-            "电话沟通标准话术",
-        ],
-    }
-    index = 0
-    for scene, texts in texts_by_scene.items():
-        for text in texts:
-            index += 1
-            rows.append(
-                json.dumps(
-                    {
-                        "sample_id": f"sample_{index:03d}",
-                        "text": text,
-                        "scene": scene,
-                        "risk_label": "no_obvious_risk",
-                    },
-                    ensure_ascii=False,
-                )
-            )
-    (tmp_path / "query_scene_train.jsonl").write_text("\n".join(rows), encoding="utf-8")
-
-    classifier = QuerySceneClassifier(tmp_path)
-    result = classifier.classify("这是顾问与具体客户的一段沟通记录")
-
-    assert classifier.status.model_ready is True
-    assert classifier.status.training_example_count == 15
-    assert result.classifier_version.startswith("query-scene-hybrid")
-
-
-def test_training_loader_rejects_unknown_scene(tmp_path: Path) -> None:
-    """未知或混合不能作为场景模型训练类别。"""
-
-    (tmp_path / "query_scene_train.jsonl").write_text(
-        json.dumps(
-            {
-                "sample_id": "unknown_001",
-                "text": "无法判断",
-                "scene": "unknown_or_mixed",
-                "risk_label": "no_obvious_risk",
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(TrainingDataError):
-        load_training_examples(tmp_path)
+    for sentence, mapping in zip(result.sentences, result.source_mappings, strict=True):
+        assert sentence.sentence_id == mapping.sentence_id
+        assert (
+            result.source_text[mapping.document_start_offset : mapping.document_end_offset]
+            == sentence.text
+        )

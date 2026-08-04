@@ -162,11 +162,11 @@ enrichment_version。
 - 向量和索引存放在 data/processed/knowledge，不直接塞入案例 JSON。
 - knowledge_entry_ids 只保存关联标识。
 
-## 4. Query 分类增强结果
+## 4. Query 分类增强结果（2.0）
 
-代码模型：EnhancedQuery
+代码模型：QueryProcessingResult（本节旧字段已由 docs/query_pipeline.md 的 2.0 契约替代）
 
-Query 可以是用户输入句子，也可以是文件读取文本。分类只为 Query 增加词条，不负责风险路由。
+当前唯一有效契约是 docs/query_pipeline.md 中的逐句四字段输入和独立原文映射。下表为旧版历史字段，仅供迁移，禁止新模块继续使用。
 
 | 字段 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |

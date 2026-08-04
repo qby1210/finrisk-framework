@@ -1,4 +1,4 @@
-"""Query 文件级分类、句子切分和逐句增强。"""
+"""Query 切句、Risk 四字段输入和原文映射。"""
 
 import re
 from collections.abc import Mapping
@@ -7,15 +7,26 @@ from datetime import UTC, datetime
 from hashlib import sha256
 
 from domain.common import QueryInputType
-from domain.query_models import EnhancedQuery, EnhancedQuerySentence, QueryClassification
-from query.classification import QuerySceneClassifier
+from domain.file_models import FileExtractionResult, PageContent, TextBlock
+from domain.query_models import (
+    QueryProcessingResult,
+    QuerySourceRegion,
+    RiskQuerySentence,
+    SentenceSourceMapping,
+)
+from query.classification import QueryClassificationContext, QuerySceneClassifier
 
-_SENTENCE_BOUNDARY = re.compile(r"(?:[。！？!?；;]+[”’」』】》）)]*)|(?:\.(?=\s+|$))|(?:\r?\n+)")
+_SENTENCE_BOUNDARY = re.compile(
+    r"(?:[。！？!?；;]+[”’」』】》）)]*)"
+    r"|(?:\.(?=\s+|$))"
+    r"|(?:\r?\n[ \t]*\r?\n+)"
+    r"|(?:\r?\n(?=[ \t]*(?:[·•●▪]|[-*][ \t]|\d+[.、])))"
+)
 
 
 @dataclass(frozen=True, slots=True)
 class SentenceSpan:
-    """从完整 Query 中切分出、保留原文偏移的一句话。"""
+    """从完整 Query 中切分出、保留全文偏移的一句话。"""
 
     text: str
     start_offset: int
@@ -23,7 +34,7 @@ class SentenceSpan:
 
 
 def split_sentences(text: str) -> list[SentenceSpan]:
-    """按中文标点、英文句末标点和换行切句，并保留全文偏移。"""
+    """按句末标点、空行和项目符号切句，并保留可逆全文偏移。"""
 
     if not text.strip():
         raise ValueError("Query 文本不能为空")
@@ -34,39 +45,64 @@ def split_sentences(text: str) -> list[SentenceSpan]:
         _append_sentence(sentences, text, segment_start, match.end())
         segment_start = match.end()
     _append_sentence(sentences, text, segment_start, len(text))
-
     if not sentences:
         raise ValueError("Query 文本未包含可处理句子")
     return sentences
 
 
-def enhance_query(
+async def prepare_query(
     text: str,
     classifier: QuerySceneClassifier,
     *,
     input_type: QueryInputType,
-    source_document_id: str | None = None,
-    source_filename: str | None = None,
+    extraction: FileExtractionResult | None = None,
     metadata: Mapping[str, object] | None = None,
-) -> EnhancedQuery:
-    """整体分类后，把同一文件级分类附到每个切分句子上。"""
+) -> QueryProcessingResult:
+    """整份材料分类后，生成逐句 Risk 输入和原文定位表。"""
 
-    classification = classifier.classify(text, metadata)
-    query_id = _query_id(text, source_document_id)
-    sentence_models = [
-        _enhance_sentence(query_id, index, span, classification)
-        for index, span in enumerate(split_sentences(text), start=1)
-    ]
+    classification_context = (
+        QueryClassificationContext(
+            media_type=extraction.media_type,
+            page_count=extraction.page_count,
+        )
+        if extraction
+        else None
+    )
+    classification = await classifier.classify(text, classification_context)
+    query_id = _query_id(text, extraction.document_id if extraction else None)
+    spans = split_sentences(text)
+    sentences: list[RiskQuerySentence] = []
+    mappings: list[SentenceSourceMapping] = []
 
-    return EnhancedQuery(
+    for index, span in enumerate(spans, start=1):
+        sentence_id = f"{query_id}_s{index:04d}"
+        sentences.append(
+            RiskQuerySentence(
+                query_id=query_id,
+                sentence_id=sentence_id,
+                scene=classification.scene,
+                text=span.text,
+            )
+        )
+        mappings.append(
+            _build_source_mapping(
+                query_id=query_id,
+                sentence_id=sentence_id,
+                input_type=input_type,
+                span=span,
+                extraction=extraction,
+            )
+        )
+
+    return QueryProcessingResult(
         query_id=query_id,
         input_type=input_type,
-        original_text=text,
-        source_document_id=source_document_id,
-        source_filename=source_filename,
+        source_text=text,
+        source_document_id=extraction.document_id if extraction else None,
+        source_filename=extraction.source_filename if extraction else None,
         classification=classification,
-        sentences=sentence_models,
-        enhanced_text="\n\n".join(sentence.enhanced_text for sentence in sentence_models),
+        sentences=sentences,
+        source_mappings=mappings,
         created_at=datetime.now(UTC),
         metadata=dict(metadata or {}),
     )
@@ -78,8 +114,6 @@ def _append_sentence(
     raw_start: int,
     raw_end: int,
 ) -> None:
-    """去除句子两端空白，同时把偏移调整到真实原文范围。"""
-
     raw_segment = full_text[raw_start:raw_end]
     if not raw_segment.strip():
         return
@@ -96,36 +130,71 @@ def _append_sentence(
     )
 
 
-def _enhance_sentence(
+def _build_source_mapping(
+    *,
     query_id: str,
-    sentence_index: int,
+    sentence_id: str,
+    input_type: QueryInputType,
     span: SentenceSpan,
-    classification: QueryClassification,
-) -> EnhancedQuerySentence:
-    """生成一条不注入风险判断的场景增强句子。"""
+    extraction: FileExtractionResult | None,
+) -> SentenceSourceMapping:
+    regions: list[QuerySourceRegion] = []
+    if extraction:
+        for page in extraction.pages:
+            for block in page.blocks:
+                if not _overlaps(span, block):
+                    continue
+                overlap_start = max(span.start_offset, block.document_start_offset)
+                overlap_end = min(span.end_offset, block.document_end_offset)
+                regions.append(
+                    QuerySourceRegion(
+                        page_number=page.page_number,
+                        block_id=block.block_id,
+                        word_ids=_overlapping_word_ids(page, overlap_start, overlap_end),
+                        text=extraction.full_text[overlap_start:overlap_end],
+                        document_start_offset=overlap_start,
+                        document_end_offset=overlap_end,
+                        polygon=block.polygon,
+                    )
+                )
 
-    selected_category = classification.selected_category
-    header = f"[QUERY_SCENE={selected_category.category_code.value}]"
-    if classification.augmentation_terms:
-        context = "；".join(classification.augmentation_terms)
-        enhanced_text = f"{header}\n[SCENE_CONTEXT={context}]\n{span.text}"
-    else:
-        enhanced_text = f"{header}\n{span.text}"
-
-    return EnhancedQuerySentence(
-        sentence_id=f"{query_id}-s{sentence_index:04d}",
-        sentence_index=sentence_index,
-        text=span.text,
-        start_offset=span.start_offset,
-        end_offset=span.end_offset,
-        category=selected_category,
-        augmentation_terms=list(classification.augmentation_terms),
-        enhanced_text=enhanced_text,
+    return SentenceSourceMapping(
+        query_id=query_id,
+        sentence_id=sentence_id,
+        input_type=input_type,
+        source_document_id=extraction.document_id if extraction else None,
+        source_filename=extraction.source_filename if extraction else None,
+        document_start_offset=span.start_offset,
+        document_end_offset=span.end_offset,
+        regions=regions,
     )
 
 
-def _query_id(text: str, source_document_id: str | None) -> str:
-    """根据文件身份和抽取文本生成可复现的 Query 标识。"""
+def _overlaps(span: SentenceSpan, block: TextBlock) -> bool:
+    return (
+        block.document_start_offset < span.end_offset
+        and block.document_end_offset > span.start_offset
+    )
 
+
+def _overlapping_word_ids(
+    page: PageContent,
+    start_offset: int,
+    end_offset: int,
+) -> list[str]:
+    return [
+        word.word_id
+        for word in page.words
+        if word.document_start_offset is not None
+        and word.document_end_offset is not None
+        and word.document_start_offset < end_offset
+        and word.document_end_offset > start_offset
+    ]
+
+
+def _query_id(text: str, source_document_id: str | None) -> str:
     identity_source = f"{source_document_id or ''}\0{text}".encode()
     return f"query_{sha256(identity_source).hexdigest()[:20]}"
+
+
+__all__ = ["SentenceSpan", "prepare_query", "split_sentences"]

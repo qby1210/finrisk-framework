@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="FinRisk 金融风险识别工作台：Query 文件读取、场景分类与逐句增强。"
+      content="FinRisk 金融风险识别工作台：Query 文件读取、六类场景识别与逐句 Risk 输入。"
     />
     <title>FinRisk · 风险识别工作台</title>
     <link rel="stylesheet" href="/static/styles.css" />
@@ -31,7 +31,7 @@
           <span class="nav-index">01</span>
           <span>
             <strong>风险查询</strong>
-            <small>Query 分类与逐句增强</small>
+            <small>六类场景识别与逐句定位</small>
           </span>
         </button>
         <button class="nav-item" type="button" data-view="case-entry">
@@ -57,11 +57,11 @@
               <p class="eyebrow">QUERY PREPARATION / 01</p>
               <h1>把整份材料，拆成<br />可判断的每一句。</h1>
               <p class="hero-description">
-                系统先读取并合并全文，判断材料使用场景，再逐句附加同一场景标签。
-                当前结果可直接交给后续 Risk 模块，不需要再次解析原始文件。
+                系统先读取并合并全文，用规则识别六类材料场景；高置信度直接输出，
+                低置信度或多类冲突时由大模型复核。随后逐句附加统一场景和原文位置。
               </p>
               <div class="flow-line" aria-label="当前处理流程">
-                <span>读取全文</span><i></i><span>场景分类</span><i></i><span>逐句增强</span>
+                <span>读取全文</span><i></i><span>规则 / LLM 分类</span><i></i><span>逐句定位</span>
               </div>
             </div>
 
@@ -114,7 +114,7 @@
                 <textarea
                   id="query-text"
                   maxlength="1000000"
-                  placeholder="粘贴宣传文案、正式业务文件或客户沟通话术……"
+                  placeholder="粘贴海报、口播、产品详情、会议材料、流程话术或监管业务事实……"
                 ></textarea>
                 <div class="text-counter"><span id="text-count">0</span> / 1,000,000</div>
               </div>
@@ -122,7 +122,7 @@
               <div class="submit-row">
                 <p>
                   分类只描述材料场景，<br />
-                  不会提前生成风险标签。
+                  不会提前生成风险标签；低置信度时由大模型复核场景。
                 </p>
                 <button class="primary-button" id="analyze-button" type="button">
                   <span class="button-label">开始解析与分类</span>
@@ -138,7 +138,7 @@
               <span class="empty-number">—</span>
               <div>
                 <strong>等待一份 Query</strong>
-                <p>完成后将在这里显示文件级分类、候选概率和逐句增强列表。</p>
+                <p>完成后将在这里显示文件级场景、规则候选和逐句 Risk 输入。</p>
               </div>
             </div>
 
@@ -148,7 +148,7 @@
                   <p class="section-kicker">CLASSIFICATION RESULT</p>
                   <h2>材料解析结果</h2>
                 </div>
-                <button class="ghost-button" id="copy-result" type="button">复制全部增强内容</button>
+                <button class="ghost-button" id="copy-result" type="button">复制 Risk 四字段输入</button>
               </div>
 
               <div class="summary-grid">
@@ -185,7 +185,7 @@
                 <article class="evidence-panel">
                   <div class="subheading">
                     <h3>分类依据</h3>
-                    <span>可解释规则</span>
+                    <span>规则 / LLM</span>
                   </div>
                   <ul id="evidence-list"></ul>
                 </article>
@@ -195,7 +195,7 @@
                 <div class="sentence-heading">
                   <div>
                     <p class="section-kicker">SENTENCE OUTPUT</p>
-                    <h2>逐句增强内容</h2>
+                    <h2>逐句 Risk 输入</h2>
                   </div>
                   <p>Risk 后续以每一项为独立判断单元</p>
                 </div>

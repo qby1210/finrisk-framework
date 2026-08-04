@@ -1,111 +1,374 @@
-"""Query 场景分类的公开入口和人工标注数据契约。
+"""六类 Query 场景的规则优先、LLM 兜底分类。"""
 
-人工标注固定使用 ``sample_id``、``text``、``scene``、``risk_label`` 四个字段。
-当前场景分类器只消费 ``text`` 和 ``scene``；``risk_label`` 保留给后续 Risk 模块。
-"""
+from __future__ import annotations
 
 import json
-from collections.abc import Mapping
-from pathlib import Path
+import re
+from dataclasses import dataclass
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, ValidationError
 
-from domain.common import ContractModel
-from domain.query_models import QueryClassification, QuerySceneLabel
-from query import _classification_core as _core
+from domain.query_models import (
+    QueryClassificationMethod,
+    QueryScene,
+    QuerySceneClassification,
+    SceneRuleCandidate,
+)
+from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
 
-ClassifierStatus = _core.ClassifierStatus
-HYBRID_CLASSIFIER_VERSION = _core.HYBRID_CLASSIFIER_VERSION
-RULE_CLASSIFIER_VERSION = _core.RULE_CLASSIFIER_VERSION
-TAXONOMY_VERSION = _core.TAXONOMY_VERSION
-category_name = _core.category_name
+TAXONOMY_VERSION = "query-scene-2.0"
+CLASSIFIER_VERSION = "query-scene-rule-llm-2.0"
+RULE_VERSION = "query-scene-rules-2.0"
 
+SCENE_NAMES = {
+    QueryScene.ST1_POSTER_SMS_SOCIAL: "海报/短信/朋友圈短文案",
+    QueryScene.ST2_LIVE_SHORT_VIDEO: "直播/短视频/口播话术",
+    QueryScene.ST3_PRODUCT_INTRO_DETAIL: "产品介绍/详情页",
+    QueryScene.ST4_MEETING_MATERIAL: "产品说明会/客户答谢会材料",
+    QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK: "培训/电销/回访流程话术",
+    QueryScene.ST6_PENALTY_BACKEND_FACT: "监管处罚文书/后台业务事实",
+}
 
-class QueryTrainingExample(ContractModel):
-    """固定四字段的人工标注 Query。"""
-
-    sample_id: str = Field(min_length=1, description="训练样本稳定标识")
-    text: str = Field(min_length=1, description="已经完成读取和清洗的完整 Query 文本")
-    scene: QuerySceneLabel = Field(description="Query 使用场景分类")
-    risk_label: str = Field(
-        min_length=1,
-        description="整段 Query 的风险标签，当前仅保留给 Risk 模块",
-    )
-
-    @field_validator("scene")
-    @classmethod
-    def reject_unknown_training_scene(cls, value: QuerySceneLabel) -> QuerySceneLabel:
-        """未知/混合是运行时回退场景，不作为模型训练类别。"""
-
-        if value is QuerySceneLabel.UNKNOWN_OR_MIXED:
-            raise ValueError("unknown_or_mixed 不用于训练，请保留为人工复核样本")
-        return value
-
-    @property
-    def label(self) -> QuerySceneLabel:
-        """兼容内部分类核心使用的场景字段名称。"""
-
-        return self.scene
+_SCENE_DEFINITIONS = """
+ST1_poster_sms_social：海报、营销短信、朋友圈或社交平台的短文案，通常篇幅短、单向传播、带行动号召。
+ST2_live_short_video：直播、短视频脚本、主播或口播话术，常含镜头、主播、直播间、小黄车等表达。
+ST3_product_intro_detail：产品介绍、详情页、产品说明内容，重点描述产品要素、期限、费用、申赎和风险等级。
+ST4_meeting_material：产品说明会、客户答谢会等线下或线上会议材料，常含议程、主持、致辞、来宾和会议安排。
+ST5_training_telemarketing_callback：内部培训、电销、客服回访流程或标准话术，常含坐席、客户问答、异议处理和回访步骤。
+ST6_penalty_backend_fact：监管处罚决定、违法事实，或后台业务事实、系统记录、审批记录、交易流水、操作日志。
+""".strip()
 
 
-class TrainingDataError(ValueError):
-    """训练数据文件格式不符合四字段约定。"""
+class LLMRequiredError(RuntimeError):
+    """规则不能可靠分类，但当前没有可用 LLM。"""
 
 
-def load_training_examples(training_dir: str | Path) -> list[QueryTrainingExample]:
-    """读取四字段 JSONL 标注数据，并忽略 ``*.example.jsonl`` 模板。"""
+@dataclass(frozen=True, slots=True)
+class QueryClassificationContext:
+    """只包含文件格式特征，不使用不可确定的来源渠道。"""
 
-    directory = Path(training_dir)
-    if not directory.exists():
-        return []
-
-    examples: list[QueryTrainingExample] = []
-    seen_ids: set[str] = set()
-    for path in sorted(directory.glob("*.jsonl")):
-        if ".example." in path.name:
-            continue
-        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                raw_value = json.loads(line)
-                example = QueryTrainingExample.model_validate(raw_value)
-            except (json.JSONDecodeError, ValueError) as error:
-                raise TrainingDataError(
-                    f"{path.name} 第 {line_number} 行格式错误：{error}"
-                ) from error
-            if example.sample_id in seen_ids:
-                raise TrainingDataError(f"训练样本 sample_id 重复：{example.sample_id}")
-            seen_ids.add(example.sample_id)
-            examples.append(example)
-    return examples
+    media_type: str | None = None
+    page_count: int | None = None
 
 
-setattr(_core, "load_training_examples", load_training_examples)
+@dataclass(frozen=True, slots=True)
+class ClassifierStatus:
+    """当前规则和 LLM 配置状态。"""
+
+    taxonomy_version: str
+    classifier_version: str
+    rule_version: str
+    llm_configured: bool
+    llm_model: str | None
 
 
-class QuerySceneClassifier(_core.QuerySceneClassifier):
-    """只根据合并后的 Query 文本进行规则或模型场景分类。"""
+@dataclass(frozen=True, slots=True)
+class _Rule:
+    scene: QueryScene
+    pattern: re.Pattern[str]
+    weight: float
+    description: str
 
-    def classify(
+
+@dataclass(frozen=True, slots=True)
+class _RuleEvaluation:
+    candidates: list[SceneRuleCandidate]
+    high_confidence: bool
+
+
+class _LLMSceneOutput(BaseModel):
+    scene: QueryScene
+    confidence: float = Field(ge=0, le=1)
+    reason: str = Field(min_length=1)
+
+
+_RULES = (
+    _Rule(
+        QueryScene.ST1_POSTER_SMS_SOCIAL,
+        re.compile(r"(?:海报|朋友圈|营销短信|短信文案|短文案|社交平台文案|回复TD退订)"),
+        7.0,
+        "出现海报、短信或社交短文案的明确标识",
+    ),
+    _Rule(
+        QueryScene.ST1_POSTER_SMS_SOCIAL,
+        re.compile(r"(?:扫码|长按识别|点击链接|立即领取|限时|转发|分享有礼|退订)"),
+        2.2,
+        "出现短营销文案的行动号召",
+    ),
+    _Rule(
+        QueryScene.ST2_LIVE_SHORT_VIDEO,
+        re.compile(
+            r"(?:直播间|直播脚本|短视频脚本|口播稿|口播话术|主播|镜头[一二三四五六七八九十\d])"
+        ),
+        7.0,
+        "出现直播、短视频或口播的明确标识",
+    ),
+    _Rule(
+        QueryScene.ST2_LIVE_SHORT_VIDEO,
+        re.compile(r"(?:家人们|宝宝们|老铁们|点个关注|小黄车|上链接|欢迎来到直播间|三二一)"),
+        2.5,
+        "出现直播或口播惯用表达",
+    ),
+    _Rule(
+        QueryScene.ST3_PRODUCT_INTRO_DETAIL,
+        re.compile(r"(?:产品介绍|产品详情|详情页|产品要素|产品说明书|产品概述)"),
+        7.0,
+        "出现产品介绍或详情页的明确标识",
+    ),
+    _Rule(
+        QueryScene.ST3_PRODUCT_INTRO_DETAIL,
+        re.compile(
+            r"(?:产品名称|风险等级|投资期限|起购金额|业绩比较基准|申购|赎回|管理费|托管费|适合投资者)"
+        ),
+        1.7,
+        "出现产品参数或交易要素",
+    ),
+    _Rule(
+        QueryScene.ST4_MEETING_MATERIAL,
+        re.compile(r"(?:产品说明会|客户答谢会|投资者交流会|说明会材料|答谢会材料)"),
+        8.0,
+        "出现产品说明会或客户答谢会的明确标识",
+    ),
+    _Rule(
+        QueryScene.ST4_MEETING_MATERIAL,
+        re.compile(r"(?:会议议程|主持词|开场致辞|各位来宾|签到|茶歇|会议时间|会议地点|嘉宾介绍)"),
+        2.0,
+        "出现会议组织或现场材料表达",
+    ),
+    _Rule(
+        QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        re.compile(
+            r"(?:培训材料|培训课件|说服语言|推销话术|销售话术|保险营销话术|促成话术|邀约话术|电销话术|回访话术|回访流程|异议处理|标准话术|电话销售)"
+        ),
+        7.0,
+        "出现培训、推销、电销或回访话术的明确标识",
+    ),
+    _Rule(
+        QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        re.compile(r"(?:坐席|客户|客服|销售|顾问)[：:]|(?:您好.{0,20}(?:致电|来电|回访))"),
+        2.2,
+        "出现坐席与客户的流程化对话",
+    ),
+    _Rule(
+        QueryScene.ST6_PENALTY_BACKEND_FACT,
+        re.compile(
+            r"(?:行政处罚决定书|监管处罚|处罚决定|罚字|金融监管总局|银保监|人民银行.{0,12}处罚)"
+        ),
+        8.0,
+        "出现监管处罚文书的明确标识",
+    ),
+    _Rule(
+        QueryScene.ST6_PENALTY_BACKEND_FACT,
+        re.compile(r"(?:经查|违反.{0,30}规定|决定给予|罚款|没收违法所得|违法事实)"),
+        2.0,
+        "出现处罚事实和处罚结论表达",
+    ),
+    _Rule(
+        QueryScene.ST6_PENALTY_BACKEND_FACT,
+        re.compile(
+            r"(?:后台业务事实|业务事实|后台记录|系统记录|审批记录|交易流水|操作日志|业务台账)"
+        ),
+        7.0,
+        "出现后台业务事实或系统留痕",
+    ),
+)
+
+
+class RuleBasedSceneClassifier:
+    """使用关键词、文体标识和文件格式特征计算六类规则分数。"""
+
+    def evaluate(
         self,
         text: str,
-        metadata: Mapping[str, object] | None = None,
-    ) -> QueryClassification:
-        """分类时忽略来源元数据，避免未知来源影响场景判断。"""
+        context: QueryClassificationContext | None = None,
+    ) -> _RuleEvaluation:
+        if not text.strip():
+            raise ValueError("Query 文本不能为空")
 
-        del metadata
-        return super().classify(text, None)
+        scores = {scene: 0.0 for scene in QueryScene}
+        evidence: dict[QueryScene, list[str]] = {scene: [] for scene in QueryScene}
+        for rule in _RULES:
+            matches = rule.pattern.findall(text)
+            if not matches:
+                continue
+            count = min(len(matches), 3)
+            scores[rule.scene] += rule.weight * count
+            evidence[rule.scene].append(f"{rule.description}（{len(matches)} 处）")
+
+        self._add_structural_scores(text, context, scores, evidence)
+        total = sum(scores.values())
+        candidates = [
+            SceneRuleCandidate(
+                scene=scene,
+                score=round(score, 4),
+                confidence=round(score / total, 6) if total else 0.0,
+                evidence=evidence[scene],
+            )
+            for scene, score in sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        ]
+        top = candidates[0]
+        second = candidates[1]
+        high_confidence = (
+            top.score >= 6.0 and top.score - second.score >= 2.5 and top.confidence >= 0.65
+        )
+        return _RuleEvaluation(candidates=candidates, high_confidence=high_confidence)
+
+    @staticmethod
+    def _add_structural_scores(
+        text: str,
+        context: QueryClassificationContext | None,
+        scores: dict[QueryScene, float],
+        evidence: dict[QueryScene, list[str]],
+    ) -> None:
+        compact_length = len("".join(text.split()))
+        if context and context.media_type and context.media_type.startswith("image/"):
+            if compact_length <= 600:
+                scores[QueryScene.ST1_POSTER_SMS_SOCIAL] += 3.0
+                evidence[QueryScene.ST1_POSTER_SMS_SOCIAL].append(
+                    "输入是单页短文本图片，符合海报或社交短文案形态"
+                )
+
+        dialogue_roles = len(re.findall(r"(?:坐席|客户|客服|销售|顾问)[：:]", text))
+        if dialogue_roles >= 2:
+            scores[QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK] += 3.0
+            evidence[QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK].append(
+                "检测到多轮角色化客户沟通结构"
+            )
+
+        parameter_count = len(
+            re.findall(r"(?:风险等级|投资期限|起购金额|申购|赎回|管理费|托管费)", text)
+        )
+        if parameter_count >= 4:
+            scores[QueryScene.ST3_PRODUCT_INTRO_DETAIL] += 3.0
+            evidence[QueryScene.ST3_PRODUCT_INTRO_DETAIL].append(
+                "多项产品参数集中出现，符合详情页结构"
+            )
+
+
+class QuerySceneClassifier:
+    """高置信规则直接输出，其余交给统一 LLM 接口。"""
+
+    def __init__(
+        self,
+        llm_client: LLMClient | None,
+        *,
+        rule_classifier: RuleBasedSceneClassifier | None = None,
+    ) -> None:
+        self._llm_client = llm_client
+        self._rule_classifier = rule_classifier or RuleBasedSceneClassifier()
+
+    @property
+    def status(self) -> ClassifierStatus:
+        return ClassifierStatus(
+            taxonomy_version=TAXONOMY_VERSION,
+            classifier_version=CLASSIFIER_VERSION,
+            rule_version=RULE_VERSION,
+            llm_configured=self._llm_client is not None,
+            llm_model=self._llm_client.model_name if self._llm_client else None,
+        )
+
+    async def classify(
+        self,
+        text: str,
+        context: QueryClassificationContext | None = None,
+    ) -> QuerySceneClassification:
+        evaluation = self._rule_classifier.evaluate(text, context)
+        top = evaluation.candidates[0]
+        if evaluation.high_confidence:
+            return QuerySceneClassification(
+                scene=top.scene,
+                confidence=top.confidence,
+                method=QueryClassificationMethod.RULE,
+                evidence=top.evidence,
+                rule_candidates=evaluation.candidates,
+                classifier_version=CLASSIFIER_VERSION,
+                taxonomy_version=TAXONOMY_VERSION,
+            )
+
+        if self._llm_client is None:
+            raise LLMRequiredError(
+                "规则结果置信度不足或存在多类冲突，需要配置 DEEPSEEK_API_KEY "
+                "或 FINRISK_LLM_API_KEY 后调用大模型分类"
+            )
+
+        llm_response = await self._llm_client.complete_json(
+            JsonChatRequest(
+                messages=[
+                    ChatMessage(
+                        role="system",
+                        content=(
+                            "你是金融材料场景分类器。只能从以下六类中选择一类。"
+                            "请仅输出 json 对象，格式为 "
+                            '{"scene":"六类代码之一","confidence":0到1,"reason":"简短依据"}。\n'
+                            f"{_SCENE_DEFINITIONS}"
+                        ),
+                    ),
+                    ChatMessage(
+                        role="user",
+                        content=(
+                            "请对下面整份材料分类。规则候选仅供参考，若多个候选冲突，"
+                            "请根据材料的主要用途作出唯一选择。\n"
+                            f"规则候选：{_candidate_json(evaluation.candidates)}\n"
+                            f"材料正文：\n{_classification_excerpt(text)}"
+                        ),
+                    ),
+                ],
+                temperature=0.0,
+                max_tokens=300,
+            )
+        )
+        try:
+            output = _LLMSceneOutput.model_validate(llm_response.data)
+        except ValidationError as error:
+            raise LLMProviderError("大模型返回的场景分类不符合六类字段约定") from error
+
+        return QuerySceneClassification(
+            scene=output.scene,
+            confidence=output.confidence,
+            method=QueryClassificationMethod.LLM,
+            evidence=[output.reason],
+            rule_candidates=evaluation.candidates,
+            classifier_version=CLASSIFIER_VERSION,
+            taxonomy_version=TAXONOMY_VERSION,
+            llm_model=llm_response.model,
+        )
+
+
+def scene_name(scene: QueryScene) -> str:
+    """返回六类场景的中文名称。"""
+
+    return SCENE_NAMES[scene]
+
+
+def _candidate_json(candidates: list[SceneRuleCandidate]) -> str:
+    values = [
+        {
+            "scene": candidate.scene.value,
+            "score": candidate.score,
+            "evidence": candidate.evidence,
+        }
+        for candidate in candidates
+        if candidate.score > 0
+    ]
+    return json.dumps(values, ensure_ascii=False)
+
+
+def _classification_excerpt(text: str, max_chars: int = 24_000) -> str:
+    if len(text) <= max_chars:
+        return text
+    half = max_chars // 2
+    return f"{text[:half]}\n\n[中间内容已省略]\n\n{text[-half:]}"
 
 
 __all__ = [
+    "CLASSIFIER_VERSION",
     "ClassifierStatus",
-    "HYBRID_CLASSIFIER_VERSION",
+    "LLMRequiredError",
+    "QueryClassificationContext",
     "QuerySceneClassifier",
-    "QueryTrainingExample",
-    "RULE_CLASSIFIER_VERSION",
+    "RULE_VERSION",
+    "RuleBasedSceneClassifier",
+    "SCENE_NAMES",
     "TAXONOMY_VERSION",
-    "TrainingDataError",
-    "category_name",
-    "load_training_examples",
+    "scene_name",
 ]

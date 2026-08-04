@@ -1,6 +1,6 @@
 # FinRisk 后端框架
 
-这是金融风险识别比赛项目的后端框架。当前已实现案例和 Query 共用的文件读取模块；API、Web、风险模型、案例标签模型和向量数据库仍未实现。
+这是金融风险识别比赛项目的后端框架。当前已实现共享文件读取、Query 六分类增强、FastAPI 和风险查询页面；风险模型、案例标签模型和向量数据库仍待接入。
 
 ## 当前确认范围
 
@@ -9,7 +9,7 @@
 1. 文件读取输出：FileExtractionResult
 2. 标准化案例：NormalizedCase
 3. 最终案例记录：FinalCaseRecord
-4. Query 分类增强结果：EnhancedQuery
+4. Query 分类增强结果：QueryProcessingResult
 
 src/extraction 已实现文件读取；Offline 和 Query 只提供对应用途的薄入口。其他业务模块仍只有中文用途说明。
 
@@ -71,8 +71,8 @@ Query 风险链路：
 
     Query 文本或文件
       -> 文件读取（仅文件输入）
-      -> Query 分类
-      -> 增加分类词条
+      -> 六类 Query 场景分类（规则优先、LLM 兜底）
+      -> 切句并生成 Risk 四字段输入与原文定位
       -> 多层次风险判断
       -> 风险概率和风险标签
 

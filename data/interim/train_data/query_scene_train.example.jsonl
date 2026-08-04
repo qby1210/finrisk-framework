@@ -1,9 +1,0 @@
-{"sample_id":"marketing_001","text":"夏日专享理财活动火热开启，活动期间首次购买可领取积分好礼，立即扫码了解产品详情。","scene":"marketing_content","risk_label":"no_obvious_risk"}
-{"sample_id":"marketing_002","text":"全新升级的财富管理服务正式上线，收益有保障，购买即可安心，欢迎点击页面预约。","scene":"marketing_content","risk_label":"guaranteed_return_claim"}
-{"sample_id":"marketing_003","text":"产品亮点：期限灵活、申购便捷。关注公众号并回复关键词即可查看完整产品介绍。","scene":"marketing_content","risk_label":"no_obvious_risk"}
-{"sample_id":"formal_001","text":"第一条 为规范产品销售行为，根据相关管理规定，制定本办法。第二条 各分支机构应当按照本办法执行。","scene":"formal_document","risk_label":"no_obvious_risk"}
-{"sample_id":"formal_002","text":"甲方与乙方经协商一致签订本协议。本协议自双方签署并盖章之日起生效，有效期为一年。","scene":"formal_document","risk_label":"no_obvious_risk"}
-{"sample_id":"formal_003","text":"关于调整业务办理流程的通知：各部门应于本月底前完成系统信息核对，特此通知。","scene":"formal_document","risk_label":"no_obvious_risk"}
-{"sample_id":"communication_001","text":"客户：这款产品可以提前赎回吗？顾问：您好，我先帮您确认产品说明书中的赎回约定。","scene":"customer_communication","risk_label":"no_obvious_risk"}
-{"sample_id":"communication_002","text":"客户：这款产品会亏吗？顾问：您放心，我保证肯定不会亏损。","scene":"customer_communication","risk_label":"guaranteed_return_claim"}
-{"sample_id":"communication_003","text":"客户问收益怎么计算时，请先说明测算口径，再引导客户查看正式产品文件，不要代替客户作决定。","scene":"customer_communication","risk_label":"no_obvious_risk"}

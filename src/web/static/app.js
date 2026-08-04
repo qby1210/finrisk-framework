@@ -5,17 +5,17 @@ const state = {
 };
 
 const categoryLabels = {
-  marketing_content: "营销宣传材料",
-  formal_document: "正式业务文件",
-  customer_communication: "客户沟通话术",
-  unknown_or_mixed: "未知或混合",
+  ST1_poster_sms_social: "ST1 海报/短信/朋友圈短文案",
+  ST2_live_short_video: "ST2 直播/短视频/口播话术",
+  ST3_product_intro_detail: "ST3 产品介绍/详情页",
+  ST4_meeting_material: "ST4 产品说明会/客户答谢会材料",
+  ST5_training_telemarketing_callback: "ST5 培训/电销/回访流程话术",
+  ST6_penalty_backend_fact: "ST6 监管处罚文书/后台业务事实",
 };
 
 const methodLabels = {
-  rule: "规则分类",
-  model: "轻量模型分类",
-  hybrid: "规则 + 轻量模型",
-  abstained: "低置信度回退",
+  rule: "高置信规则直出",
+  llm: "DeepSeek / LLM 复核",
 };
 
 const elements = {
@@ -81,7 +81,7 @@ elements.textInput.addEventListener("input", () => {
 });
 
 elements.analyzeButton.addEventListener("click", analyzeQuery);
-elements.copyResult.addEventListener("click", copyEnhancedResult);
+elements.copyResult.addEventListener("click", copyRiskInput);
 
 loadClassifierStatus();
 
@@ -139,7 +139,7 @@ async function analyzeQuery() {
     request = fetch("/api/query/analyze/text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, metadata: { source_channel: "web_text" } }),
+      body: JSON.stringify({ text }),
     });
   }
 
@@ -161,20 +161,18 @@ async function analyzeQuery() {
 
 function renderResult(result) {
   const classification = result.classification;
-  const selected = classification.selected_category;
   elements.emptyResults.hidden = true;
   elements.resultsContent.hidden = false;
-  elements.resultCategory.textContent =
-    categoryLabels[selected.category_code] ?? selected.category_name;
-  elements.resultCategoryCode.textContent = selected.category_code;
-  elements.resultConfidence.textContent = formatPercent(selected.probability);
+  elements.resultCategory.textContent = categoryLabels[classification.scene] ?? classification.scene;
+  elements.resultCategoryCode.textContent = classification.scene;
+  elements.resultConfidence.textContent = formatPercent(classification.confidence);
   elements.resultMethod.textContent =
-    methodLabels[classification.classification_method] ?? classification.classification_method;
+    methodLabels[classification.method] ?? classification.method;
   elements.resultSentenceCount.textContent = String(result.sentences.length).padStart(2, "0");
 
-  renderCandidates(classification.candidates);
-  renderEvidence(classification.classification_evidence, classification.is_abstained);
-  renderSentences(result.sentences);
+  renderCandidates(classification.rule_candidates);
+  renderEvidence(classification.evidence, classification.method);
+  renderSentences(result.sentences, result.source_mappings);
   elements.resultsContent.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -185,32 +183,25 @@ function renderCandidates(candidates) {
     row.className = "candidate-row";
 
     const label = document.createElement("span");
-    label.textContent = categoryLabels[candidate.category_code] ?? candidate.category_name;
+    label.textContent = categoryLabels[candidate.scene] ?? candidate.scene;
 
     const track = document.createElement("div");
     track.className = "candidate-track";
     const fill = document.createElement("div");
     fill.className = "candidate-fill";
-    fill.style.width = `${Math.round(candidate.probability * 100)}%`;
+    fill.style.width = `${Math.round(candidate.confidence * 100)}%`;
     track.append(fill);
 
     const probability = document.createElement("strong");
-    probability.textContent = formatPercent(candidate.probability);
+    probability.textContent = candidate.score.toFixed(1);
     row.append(label, track, probability);
     elements.candidateList.append(row);
   });
 }
 
-function renderEvidence(evidence, isAbstained) {
+function renderEvidence(evidence, method) {
   elements.evidenceList.replaceChildren();
-  const values =
-    evidence.length > 0
-      ? evidence
-      : [
-          isAbstained
-            ? "没有足够强的场景证据，已回退为未知或混合。"
-            : "当前结果主要由人工标注模型给出。",
-        ];
+  const values = evidence.length > 0 ? evidence : [`由${methodLabels[method] ?? method}确定`];
   values.forEach((value) => {
     const item = document.createElement("li");
     item.textContent = value;
@@ -218,15 +209,18 @@ function renderEvidence(evidence, isAbstained) {
   });
 }
 
-function renderSentences(sentences) {
+function renderSentences(sentences, mappings) {
   elements.sentenceList.replaceChildren();
-  sentences.forEach((sentence) => {
+  const mappingBySentence = new Map(mappings.map((mapping) => [mapping.sentence_id, mapping]));
+
+  sentences.forEach((sentence, index) => {
+    const mapping = mappingBySentence.get(sentence.sentence_id);
     const card = document.createElement("article");
     card.className = "sentence-card";
 
     const number = document.createElement("span");
     number.className = "sentence-number";
-    number.textContent = String(sentence.sentence_index).padStart(2, "0");
+    number.textContent = String(index + 1).padStart(2, "0");
 
     const main = document.createElement("div");
     main.className = "sentence-main";
@@ -236,10 +230,11 @@ function renderSentences(sentences) {
     metadata.className = "sentence-meta";
     const chip = document.createElement("span");
     chip.className = "scene-chip";
-    chip.textContent =
-      categoryLabels[sentence.category.category_code] ?? sentence.category.category_name;
+    chip.textContent = categoryLabels[sentence.scene] ?? sentence.scene;
     const offset = document.createElement("span");
-    offset.textContent = `全文位置 ${sentence.start_offset}–${sentence.end_offset}`;
+    offset.textContent = mapping
+      ? `全文位置 ${mapping.document_start_offset}–${mapping.document_end_offset}`
+      : sentence.sentence_id;
     metadata.append(chip, offset);
     main.append(text, metadata);
 
@@ -249,10 +244,10 @@ function renderSentences(sentences) {
 
     const details = document.createElement("details");
     const summary = document.createElement("summary");
-    summary.textContent = "查看交给 Risk 的增强内容";
-    const enhanced = document.createElement("pre");
-    enhanced.textContent = sentence.enhanced_text;
-    details.append(summary, enhanced);
+    summary.textContent = "查看原文定位信息";
+    const source = document.createElement("pre");
+    source.textContent = JSON.stringify(mapping ?? {}, null, 2);
+    details.append(summary, source);
 
     card.append(number, main, riskPlaceholder, details);
     elements.sentenceList.append(card);
@@ -268,23 +263,23 @@ async function loadClassifierStatus() {
     const payload = await response.json();
     const stateElement = elements.classifierMode.closest(".system-state");
     stateElement?.classList.add("is-ready");
-    elements.classifierMode.textContent = payload.model_ready
-      ? `混合分类器 · ${payload.training_example_count} 条人工标注`
-      : "规则分类器 · 等待人工标注数据";
+    elements.classifierMode.textContent = payload.llm_configured
+      ? `六类规则 + ${payload.llm_model}`
+      : "六类规则已就绪 · 低置信分类需配置 LLM";
   } catch {
     elements.classifierMode.textContent = "分类器状态暂不可用";
   }
 }
 
-async function copyEnhancedResult() {
+async function copyRiskInput() {
   if (!state.result) {
     return;
   }
   try {
-    await navigator.clipboard.writeText(state.result.enhanced_text);
-    showToast("已复制全部增强内容");
+    await navigator.clipboard.writeText(JSON.stringify(state.result.sentences, null, 2));
+    showToast("已复制 Risk 四字段输入");
   } catch {
-    showToast("浏览器未允许复制，请展开句子手动复制");
+    showToast("浏览器未允许复制，请手动复制结果");
   }
 }
 

@@ -1,0 +1,133 @@
+"""OpenAI-compatible 大模型客户端及环境变量配置。"""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, field
+from typing import Protocol
+
+import httpx
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
+
+from llm.types import JsonChatRequest, JsonChatResponse
+
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-v4-flash"
+
+
+class LLMConfigurationError(RuntimeError):
+    """大模型调用所需环境变量缺失。"""
+
+
+class LLMProviderError(RuntimeError):
+    """大模型供应商请求失败或返回格式不正确。"""
+
+
+class LLMClient(Protocol):
+    """Offline、Query、Risk 都可以依赖的最小 JSON 调用接口。"""
+
+    @property
+    def model_name(self) -> str:
+        """返回配置的模型标识。"""
+
+        ...
+
+    async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
+        """执行聊天补全并返回 JSON 对象。"""
+
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class LLMSettings:
+    """OpenAI-compatible 服务连接参数。"""
+
+    api_key: str = field(repr=False)
+    base_url: str = DEFAULT_BASE_URL
+    model: str = DEFAULT_MODEL
+    connect_timeout_seconds: float = 10.0
+    read_timeout_seconds: float = 60.0
+
+
+class _ProviderMessage(BaseModel):
+    content: str
+
+
+class _ProviderChoice(BaseModel):
+    message: _ProviderMessage
+
+
+class _ProviderResponse(BaseModel):
+    model: str
+    choices: list[_ProviderChoice] = Field(min_length=1)
+    usage: dict[str, object] | None = None
+
+
+class OpenAICompatibleLLMClient:
+    """通过 OpenAI ChatCompletions 协议调用远程或本地模型。"""
+
+    def __init__(self, settings: LLMSettings) -> None:
+        self._settings = settings
+
+    @property
+    def model_name(self) -> str:
+        return self._settings.model
+
+    async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
+        """调用 `/chat/completions` 并严格解析 JSON 对象。"""
+
+        body: dict[str, object] = {
+            "model": self._settings.model,
+            "messages": [message.model_dump() for message in request.messages],
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        body.update(request.extra_body)
+        timeout = httpx.Timeout(
+            self._settings.read_timeout_seconds,
+            connect=self._settings.connect_timeout_seconds,
+        )
+        headers = {
+            "Authorization": f"Bearer {self._settings.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    f"{self._settings.base_url.rstrip('/')}/chat/completions",
+                    headers=headers,
+                    json=body,
+                )
+                response.raise_for_status()
+                provider_response = _ProviderResponse.model_validate(response.json())
+            parsed = json.loads(provider_response.choices[0].message.content)
+            data = TypeAdapter(dict[str, object]).validate_python(parsed)
+        except httpx.TimeoutException as error:
+            raise LLMProviderError("大模型请求超时") from error
+        except httpx.HTTPStatusError as error:
+            raise LLMProviderError(f"大模型服务返回 HTTP {error.response.status_code}") from error
+        except (httpx.HTTPError, json.JSONDecodeError, ValidationError, ValueError) as error:
+            raise LLMProviderError("大模型服务返回了无法解析的响应") from error
+
+        return JsonChatResponse(
+            data=data,
+            model=provider_response.model,
+            usage=provider_response.usage or {},
+        )
+
+
+def create_llm_client_from_env() -> OpenAICompatibleLLMClient | None:
+    """从环境变量创建客户端；未配置密钥时返回 None。"""
+
+    api_key = os.getenv("FINRISK_LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        return None
+    settings = LLMSettings(
+        api_key=api_key,
+        base_url=os.getenv("FINRISK_LLM_BASE_URL", DEFAULT_BASE_URL),
+        model=os.getenv("FINRISK_LLM_MODEL", DEFAULT_MODEL),
+    )
+    return OpenAICompatibleLLMClient(settings)
