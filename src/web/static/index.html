@@ -5,224 +5,197 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="FinRisk 金融风险识别工作台：Query 文件读取、六类场景识别与逐句 Risk 输入。"
+      content="FinRisk 保险营销合规工作台：风险判断、相似案例匹配、案例增量录入和统一案例库管理。"
     />
-    <title>FinRisk · 风险识别工作台</title>
+    <title>FinRisk · 保险营销合规工作台</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <div class="page-shell">
+    <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="/" aria-label="FinRisk 首页">
+        <a class="brand" href="#risk" data-route="risk" aria-label="FinRisk 首页">
           <span class="brand-mark">FR</span>
-          <span>
-            <strong>FinRisk</strong>
-            <small>金融风险识别工作台</small>
-          </span>
+          <span><strong>FinRisk</strong><small>保险营销合规工作台</small></span>
         </a>
-        <div class="system-state" title="当前为 Query 分类增强阶段">
-          <span class="state-dot"></span>
-          <span id="classifier-mode">正在读取分类器状态</span>
+        <div class="health" id="health-state">
+          <span class="health-dot"></span>
+          <span id="health-text">正在连接本地服务</span>
         </div>
       </header>
 
-      <nav class="workspace-nav" aria-label="功能模块">
+      <nav class="workspace-nav" aria-label="工作台功能">
         <button class="nav-item is-active" type="button" data-view="risk">
           <span class="nav-index">01</span>
-          <span>
-            <strong>风险查询</strong>
-            <small>六类场景识别与逐句定位</small>
-          </span>
+          <span><strong>风险查询</strong><small>分类 · 逐句判断 · 案例匹配</small></span>
         </button>
         <button class="nav-item" type="button" data-view="case-entry">
           <span class="nav-index">02</span>
-          <span>
-            <strong>案例录入</strong>
-            <small>待接入离线案例流程</small>
-          </span>
+          <span><strong>案例录入</strong><small>PDF 抽取 · 标准化 · 同库写入</small></span>
         </button>
-        <button class="nav-item" type="button" data-view="all-cases">
+        <button class="nav-item" type="button" data-view="cases">
           <span class="nav-index">03</span>
-          <span>
-            <strong>全部案例</strong>
-            <small>待接入案例知识库</small>
-          </span>
+          <span><strong>案例管理</strong><small>检索 · 查看 · 停用与恢复</small></span>
         </button>
       </nav>
 
       <main>
-        <section class="view-panel is-visible" id="risk-view">
+        <section class="view is-visible" id="risk-view">
           <div class="hero-grid">
             <div class="hero-copy">
-              <p class="eyebrow">QUERY PREPARATION / 01</p>
-              <h1>把整份材料，拆成<br />可判断的每一句。</h1>
-              <p class="hero-description">
-                系统先读取并合并全文，用规则识别六类材料场景；高置信度直接输出，
-                低置信度或多类冲突时由大模型复核。随后逐句附加统一场景和原文位置。
+              <p class="eyebrow">RISK ANALYSIS / 01</p>
+              <h1>从一段文案，<br />追到一条证据。</h1>
+              <p>
+                先识别材料场景并切分语句，再综合关键词规则、历史案例和 DeepSeek
+                判断风险。匹配案例用于说明和复核，不替代对当前文案本身的判断。
               </p>
-              <div class="flow-line" aria-label="当前处理流程">
-                <span>读取全文</span><i></i><span>规则 / LLM 分类</span><i></i><span>逐句定位</span>
+              <div class="flow" aria-label="风险处理流程">
+                <span>场景分类</span><i></i><span>逐句风险</span><i></i><span>案例证据</span>
               </div>
             </div>
 
-            <section class="query-card" aria-labelledby="query-input-title">
-              <div class="card-heading">
-                <div>
-                  <p class="section-kicker">NEW QUERY</p>
-                  <h2 id="query-input-title">提交待分析内容</h2>
-                </div>
-                <span class="step-badge">仅分类增强</span>
+            <section class="panel input-card" aria-labelledby="query-title">
+              <div class="panel-heading">
+                <div><p class="kicker">NEW QUERY</p><h2 id="query-title">提交待审查内容</h2></div>
+                <span class="pill pill-accent">完整流程</span>
               </div>
-
-              <div class="input-switch" role="tablist" aria-label="输入方式">
-                <button
-                  class="switch-button is-active"
-                  type="button"
-                  role="tab"
-                  aria-selected="true"
-                  data-input-mode="file"
-                >
-                  上传文件
-                </button>
-                <button
-                  class="switch-button"
-                  type="button"
-                  role="tab"
-                  aria-selected="false"
-                  data-input-mode="text"
-                >
-                  输入文字
-                </button>
+              <div class="segmented" role="tablist" aria-label="Query 输入方式">
+                <button class="is-active" type="button" data-query-mode="text">输入文字</button>
+                <button type="button" data-query-mode="file">上传文件</button>
               </div>
-
-              <div class="input-panel is-visible" id="file-panel">
-                <label class="drop-zone" id="drop-zone" for="query-file">
+              <div class="query-input is-visible" id="query-text-panel">
+                <label class="sr-only" for="query-text">待审查文字</label>
+                <textarea
+                  id="query-text"
+                  maxlength="1000000"
+                  placeholder="粘贴小红书文案、海报、口播、产品介绍、会议材料或业务事实……"
+                ></textarea>
+                <span class="counter"><b id="query-count">0</b> / 1,000,000</span>
+              </div>
+              <div class="query-input" id="query-file-panel">
+                <label class="drop-zone" id="query-drop-zone" for="query-file">
                   <input
                     id="query-file"
                     type="file"
                     accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp,.txt,.md,.docx"
                   />
-                  <span class="upload-glyph" aria-hidden="true">↑</span>
+                  <span class="upload-icon">↑</span>
                   <strong>拖入文件，或点击选择</strong>
                   <small>PDF、图片、TXT、Markdown、DOCX · 最大 25 MB</small>
-                  <span class="selected-file" id="selected-file">尚未选择文件</span>
+                  <span class="selected-file" id="query-file-name">尚未选择文件</span>
                 </label>
               </div>
-
-              <div class="input-panel" id="text-panel">
-                <label class="sr-only" for="query-text">输入待分析文字</label>
-                <textarea
-                  id="query-text"
-                  maxlength="1000000"
-                  placeholder="粘贴海报、口播、产品详情、会议材料、流程话术或监管业务事实……"
-                ></textarea>
-                <div class="text-counter"><span id="text-count">0</span> / 1,000,000</div>
-              </div>
-
-              <div class="submit-row">
-                <p>
-                  分类只描述材料场景，<br />
-                  不会提前生成风险标签；低置信度时由大模型复核场景。
-                </p>
+              <div class="action-row">
+                <p>结果按句给出风险等级、依据与匹配案例。</p>
                 <button class="primary-button" id="analyze-button" type="button">
-                  <span class="button-label">开始解析与分类</span>
-                  <span class="button-spinner" aria-hidden="true"></span>
+                  <span>开始风险判断</span><i class="spinner"></i>
                 </button>
               </div>
-              <div class="form-error" id="form-error" role="alert"></div>
+              <p class="form-error" id="query-error" role="alert"></p>
             </section>
           </div>
 
-          <section class="results-shell" id="results-shell" aria-live="polite">
-            <div class="empty-results" id="empty-results">
-              <span class="empty-number">—</span>
-              <div>
-                <strong>等待一份 Query</strong>
-                <p>完成后将在这里显示文件级场景、规则候选和逐句 Risk 输入。</p>
-              </div>
+          <section class="panel results-panel" id="risk-results" aria-live="polite">
+            <div class="empty-state" id="risk-empty">
+              <span>01</span><div><strong>等待一份 Query</strong><p>提交后在这里查看风险概览和逐句证据。</p></div>
             </div>
-
-            <div class="results-content" id="results-content" hidden>
-              <div class="results-header">
-                <div>
-                  <p class="section-kicker">CLASSIFICATION RESULT</p>
-                  <h2>材料解析结果</h2>
-                </div>
-                <button class="ghost-button" id="copy-result" type="button">复制 Risk 四字段输入</button>
+            <div id="risk-content" hidden>
+              <div class="results-heading">
+                <div><p class="kicker">ANALYSIS RESULT</p><h2>风险判断结果</h2></div>
+                <button class="quiet-button" id="copy-risk-result" type="button">复制结果摘要</button>
               </div>
-
-              <div class="summary-grid">
-                <article class="summary-card category-summary">
-                  <span>文件统一分类</span>
-                  <strong id="result-category">—</strong>
-                  <small id="result-category-code">—</small>
-                </article>
-                <article class="summary-card">
-                  <span>分类置信度</span>
-                  <strong id="result-confidence">—</strong>
-                  <small id="result-method">—</small>
-                </article>
-                <article class="summary-card">
-                  <span>切分句数</span>
-                  <strong id="result-sentence-count">—</strong>
-                  <small>每句继承文件统一分类</small>
-                </article>
-                <article class="summary-card">
-                  <span>Risk 状态</span>
-                  <strong class="pending-value">待接入</strong>
-                  <small>后续输出逐句概率与相似案例</small>
-                </article>
+              <div class="summary-grid" id="risk-summary"></div>
+              <div class="warning-list" id="risk-warnings"></div>
+              <div class="sentence-toolbar">
+                <div><h3>逐句判断</h3><span id="classification-note"></span></div>
+                <label>显示
+                  <select id="risk-filter">
+                    <option value="all">全部语句</option>
+                    <option value="risky">仅有风险</option>
+                  </select>
+                </label>
               </div>
-
-              <div class="detail-grid">
-                <article class="candidate-panel">
-                  <div class="subheading">
-                    <h3>候选分类</h3>
-                    <span>文件级</span>
-                  </div>
-                  <div id="candidate-list"></div>
-                </article>
-                <article class="evidence-panel">
-                  <div class="subheading">
-                    <h3>分类依据</h3>
-                    <span>规则 / LLM</span>
-                  </div>
-                  <ul id="evidence-list"></ul>
-                </article>
-              </div>
-
-              <div class="sentence-section">
-                <div class="sentence-heading">
-                  <div>
-                    <p class="section-kicker">SENTENCE OUTPUT</p>
-                    <h2>逐句 Risk 输入</h2>
-                  </div>
-                  <p>Risk 后续以每一项为独立判断单元</p>
-                </div>
-                <div class="sentence-list" id="sentence-list"></div>
-              </div>
+              <div class="risk-list" id="risk-list"></div>
             </div>
           </section>
         </section>
 
-        <section class="view-panel placeholder-view" id="case-entry-view">
-          <p class="eyebrow">CASE INGESTION / 02</p>
-          <span class="placeholder-number">02</span>
-          <h1>案例录入</h1>
-          <p>这里将连接案例文件抽取、标准化、双模型标签和知识库写入流程。</p>
-          <span class="construction-label">模块待接入</span>
+        <section class="view" id="case-entry-view">
+          <div class="section-intro">
+            <div><p class="eyebrow">CASE INGESTION / 02</p><h1>把新案例放回同一个库。</h1></div>
+            <p>
+              上传原始 PDF 或文档后，系统沿用现有案例构建思路完成抽取、标准化、风险标签、
+              证据切片和检索扩展，并追加到同一 cases / chunks / expansions 数据集中。
+            </p>
+          </div>
+          <div class="entry-grid">
+            <section class="panel upload-panel">
+              <div class="panel-heading">
+                <div><p class="kicker">SOURCE DOCUMENT</p><h2>录入案例原文</h2></div>
+                <span class="pill">增量写入</span>
+              </div>
+              <label class="drop-zone case-drop" id="case-drop-zone" for="case-file">
+                <input
+                  id="case-file"
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp,.txt,.md,.docx"
+                />
+                <span class="upload-icon">+</span>
+                <strong>选择一份监管处罚案例</strong>
+                <small>原文件将保存在 data/raw/cases/uploads，结构化数据写入统一案例库</small>
+                <span class="selected-file" id="case-file-name">尚未选择文件</span>
+              </label>
+              <div class="action-row">
+                <p>相同文件哈希不会重复录入；失败时不会留下半条记录。</p>
+                <button class="primary-button" id="ingest-button" type="button">
+                  <span>抽取并录入</span><i class="spinner"></i>
+                </button>
+              </div>
+              <p class="form-error" id="case-error" role="alert"></p>
+            </section>
+            <aside class="pipeline-note">
+              <p class="kicker">ONE DATABASE</p>
+              <ol>
+                <li><b>01</b><span><strong>保留原始文件</strong><small>记录哈希和来源，可追溯回原文。</small></span></li>
+                <li><b>02</b><span><strong>生成统一字段</strong><small>案例、证据片段、检索扩展采用现有 schema。</small></span></li>
+                <li><b>03</b><span><strong>刷新同一索引</strong><small>新案例立即参与后续 Query 匹配。</small></span></li>
+              </ol>
+            </aside>
+          </div>
+          <section class="panel ingestion-result" id="ingestion-result" hidden></section>
         </section>
 
-        <section class="view-panel placeholder-view" id="all-cases-view">
-          <p class="eyebrow">CASE LIBRARY / 03</p>
-          <span class="placeholder-number">03</span>
-          <h1>全部案例</h1>
-          <p>这里将展示最终案例记录、风险标签、证据与向量知识库关联。</p>
-          <span class="construction-label">模块待接入</span>
+        <section class="view" id="cases-view">
+          <div class="section-intro compact">
+            <div><p class="eyebrow">CASE LIBRARY / 03</p><h1>统一案例库</h1></div>
+            <p>原批次案例和 Web 新增案例共享同一物理数据集。停用操作可恢复，不会删除原始记录。</p>
+          </div>
+          <div class="stats-grid" id="case-stats">
+            <article><span>案例总数</span><strong>—</strong></article>
+            <article><span>当前启用</span><strong>—</strong></article>
+            <article><span>Web 新增</span><strong>—</strong></article>
+            <article><span>风险标签</span><strong>—</strong></article>
+          </div>
+          <section class="panel library-panel">
+            <form class="case-filters" id="case-filters">
+              <label class="search-field"><span class="sr-only">搜索案例</span><input id="case-search" type="search" placeholder="搜索案号、机构、违法事实……" /></label>
+              <label><span>风险标签</span><input id="case-risk-tag" type="text" placeholder="如：销售误导" /></label>
+              <label><span>状态</span><select id="case-status"><option value="">全部</option><option value="active">启用</option><option value="inactive">已停用</option></select></label>
+              <label><span>来源</span><select id="case-origin"><option value="">全部</option><option value="web_ingestion">Web 新增</option></select></label>
+              <button class="primary-button small" type="submit"><span>查询</span></button>
+            </form>
+            <div class="case-list-head"><span id="case-count-label">正在读取案例……</span><button class="quiet-button" id="refresh-cases" type="button">刷新</button></div>
+            <div class="case-list" id="case-list"></div>
+            <div class="pagination" id="case-pagination"></div>
+          </section>
         </section>
       </main>
     </div>
 
+    <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+    <aside class="case-drawer" id="case-drawer" aria-label="案例详情" aria-hidden="true">
+      <button class="drawer-close" id="drawer-close" type="button" aria-label="关闭详情">×</button>
+      <div id="case-detail"></div>
+    </aside>
     <div class="toast" id="toast" role="status"></div>
     <script src="/static/app.js" defer></script>
   </body>

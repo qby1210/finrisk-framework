@@ -73,8 +73,7 @@ def calculate_text_quality(text: str, minimum_chars: int) -> float:
         character.isprintable() and character != "\ufffd" for character in compact
     ) / len(compact)
     meaningful_ratio = sum(
-        character.isalnum() or "\u4e00" <= character <= "\u9fff"
-        for character in compact
+        character.isalnum() or "\u4e00" <= character <= "\u9fff" for character in compact
     ) / len(compact)
 
     return min(

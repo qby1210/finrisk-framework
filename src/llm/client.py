@@ -1,4 +1,4 @@
-"""OpenAI-compatible 大模型客户端及环境变量配置。"""
+"""项目唯一的 OpenAI-compatible 大模型客户端。"""
 
 from __future__ import annotations
 
@@ -25,29 +25,24 @@ class LLMProviderError(RuntimeError):
 
 
 class LLMClient(Protocol):
-    """Offline、Query、Risk 都可以依赖的最小 JSON 调用接口。"""
+    """Offline、Query、Risk 共用的最小 JSON 调用接口。"""
 
     @property
-    def model_name(self) -> str:
-        """返回配置的模型标识。"""
+    def model_name(self) -> str: ...
 
-        ...
-
-    async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
-        """执行聊天补全并返回 JSON 对象。"""
-
-        ...
+    async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse: ...
 
 
 @dataclass(frozen=True, slots=True)
 class LLMSettings:
-    """OpenAI-compatible 服务连接参数。"""
+    """DeepSeek/OpenAI-compatible 服务连接参数。"""
 
     api_key: str = field(repr=False)
     base_url: str = DEFAULT_BASE_URL
     model: str = DEFAULT_MODEL
+    thinking: str = "disabled"
     connect_timeout_seconds: float = 10.0
-    read_timeout_seconds: float = 60.0
+    read_timeout_seconds: float = 90.0
 
 
 class _ProviderMessage(BaseModel):
@@ -65,9 +60,11 @@ class _ProviderResponse(BaseModel):
 
 
 class OpenAICompatibleLLMClient:
-    """通过 OpenAI ChatCompletions 协议调用远程或本地模型。"""
+    """通过 Chat Completions 协议调用 DeepSeek V4 Flash。"""
 
     def __init__(self, settings: LLMSettings) -> None:
+        if settings.thinking not in {"enabled", "disabled"}:
+            raise LLMConfigurationError("FINRISK_LLM_THINKING 只能是 enabled 或 disabled")
         self._settings = settings
 
     @property
@@ -75,7 +72,7 @@ class OpenAICompatibleLLMClient:
         return self._settings.model
 
     async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
-        """调用 `/chat/completions` 并严格解析 JSON 对象。"""
+        """关闭思考模式并严格解析 JSON，防止推理文本混入业务字段。"""
 
         body: dict[str, object] = {
             "model": self._settings.model,
@@ -83,6 +80,7 @@ class OpenAICompatibleLLMClient:
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
             "response_format": {"type": "json_object"},
+            "thinking": {"type": self._settings.thinking},
         }
         body.update(request.extra_body)
         timeout = httpx.Timeout(
@@ -92,8 +90,8 @@ class OpenAICompatibleLLMClient:
         headers = {
             "Authorization": f"Bearer {self._settings.api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "FinRisk/1.0",
         }
-
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
@@ -111,7 +109,6 @@ class OpenAICompatibleLLMClient:
             raise LLMProviderError(f"大模型服务返回 HTTP {error.response.status_code}") from error
         except (httpx.HTTPError, json.JSONDecodeError, ValidationError, ValueError) as error:
             raise LLMProviderError("大模型服务返回了无法解析的响应") from error
-
         return JsonChatResponse(
             data=data,
             model=provider_response.model,
@@ -129,5 +126,8 @@ def create_llm_client_from_env() -> OpenAICompatibleLLMClient | None:
         api_key=api_key,
         base_url=os.getenv("FINRISK_LLM_BASE_URL", DEFAULT_BASE_URL),
         model=os.getenv("FINRISK_LLM_MODEL", DEFAULT_MODEL),
+        thinking=os.getenv("FINRISK_LLM_THINKING", "disabled"),
+        connect_timeout_seconds=float(os.getenv("FINRISK_LLM_CONNECT_TIMEOUT", "10")),
+        read_timeout_seconds=float(os.getenv("FINRISK_LLM_READ_TIMEOUT", "90")),
     )
     return OpenAICompatibleLLMClient(settings)

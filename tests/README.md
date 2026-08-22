@@ -1,12 +1,18 @@
-# 测试目录
+# 测试说明
 
-后续测试按源码模块放置：
+测试按业务模块组织：
 
-- domain：字段合法性和序列化契约测试；
-- extraction：共享文件读取、OCR 解析和坐标偏移测试；
-- offline：案例读取、标准化、标签、增强和 Embedding 测试；
-- query：Query 文件读取、分类和增强测试；
-- risk：多层风险判断和概率融合测试；
-- application：案例管理和向量检索联调测试。
+- `api`：首页、Query 与案例只读接口；
+- `application`：Query 文件用例；
+- `extraction`：PDF/图片/TXT/DOCX、OCR 假引擎和偏移；
+- `offline`：真实案例 PDF 的不入库三表构建；
+- `query`：六类分类、切句、社交平台项目符号和原文映射；
+- `risk`：真实词库、五档阈值、检索门控和真实小红书本地冒烟；
+- `storage`：同一案例库写入、停用和 BM25 检索。
 
-当前已实现 extraction 测试；OCR 测试使用假引擎，不下载模型或访问网络。
+```powershell
+uv run pytest -q
+```
+
+测试默认不访问外网、不写正式案例库。真实 PDF 测试只生成内存产物；真实小红书样本显式
+构造 `llm_client=None`。依赖交付数据或用户样本的测试在文件缺失时应跳过。

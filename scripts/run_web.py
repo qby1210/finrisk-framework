@@ -1,12 +1,25 @@
-"""启动 FinRisk FastAPI 和网站。"""
+"""加载项目环境变量并启动 FinRisk Web 工作台。"""
+
+from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 
-if __name__ == "__main__":
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def main() -> None:
+    """只从项目根目录加载 .env，避免依赖调用者的当前目录。"""
+
+    load_dotenv(PROJECT_ROOT / ".env")
     uvicorn.run(
         "api.app:app",
         host="127.0.0.1",
         port=8000,
-        reload=True,
-        app_dir="src",
+        reload=False,
+        app_dir=str(PROJECT_ROOT / "src"),
     )
+
+
+if __name__ == "__main__":
+    main()

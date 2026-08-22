@@ -203,8 +203,6 @@ def test_query_entry_sets_query_purpose_and_logical_uri(tmp_path: Path) -> None:
     assert result.source_uri == "data/raw/query/sample.txt"
 
 
-
-
 def test_case_entry_sets_case_purpose_and_logical_uri(tmp_path: Path) -> None:
     """案例薄入口应设置案例用途和稳定逻辑路径。"""
 
@@ -215,6 +213,7 @@ def test_case_entry_sets_case_purpose_and_logical_uri(tmp_path: Path) -> None:
 
     assert result.file_purpose is FilePurpose.CASE
     assert result.source_uri == "data/raw/cases/sample.txt"
+
 
 def test_unsupported_extension_is_rejected(tmp_path: Path) -> None:
     """未知扩展名应返回明确异常。"""

@@ -1,9 +1,0 @@
-# 项目路径配置示例，只约定位置，不代表已实现配置加载。
-paths:
-  raw_cases: data/raw/cases
-  raw_query: data/raw/query
-  extracted_cases: data/interim/extracted_cases
-  extracted_query: data/interim/extracted_query
-  normalized_cases: data/interim/normalized_cases
-  processed_cases: data/processed/cases
-  knowledge: data/processed/knowledge

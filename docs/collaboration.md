@@ -1,81 +1,59 @@
 # 团队协作约定
 
-## 文件负责人
+## 模块责任
 
-Offline 负责人主要修改：
+| 模块 | 责任 | 禁止事项 |
+| --- | --- | --- |
+| `domain` | 跨模块字段和枚举 | 业务算法、I/O |
+| `extraction` | 所有文件格式读取和位置 | 复制到 offline/query |
+| `offline` | 新案例三表产物构建 | 修改已有批次数据、调用 Query 风险给案例定性 |
+| `query` | 文件级场景分类、切句、定位 | 查询或写案例库 |
+| `risk` | Query 风险证据融合和解释 | 修改案例标签 |
+| `retrieval` | 索引算法 | 直接写主表 |
+| `storage` | 统一案例库读取、写入、状态 | 第二套用户数据库 |
+| `application` | 用例编排 | 内嵌算法和 HTTP 细节 |
+| `api` | 路由、校验、依赖装配 | 业务规则 |
+| `llm` | 唯一供应商客户端 | 业务 Prompt 和字段模型 |
 
-    src/offline/
-    scripts/run_offline_pipeline.py
-    tests/offline/
+## 共享契约变更
 
-负责消费统一文件读取结果，并实现案例标准化、独立分类模型、大模型复核、标签融合、增强和 Embedding。
+修改 `src/domain`、案例三表 schema、风险标签体系或 API 响应时，同一次变更必须说明：
 
-共享文件读取负责人主要修改：
+1. 变更原因和受影响模块；
+2. 历史 7,328 条案例是否需要迁移；
+3. Query、Web 和测试是否同步；
+4. schema/data/model/prompt 版本是否需要升级；
+5. 是否改变数据可追溯性或人工复核要求。
 
-    src/extraction/
-    src/domain/file_models.py
-    configs/extraction.example.yaml
-    tests/extraction/
+默认不重建已有案例库。能通过兼容读取或增量字段解决时，不做全量转换。
 
-负责 PDF、图片、TXT、DOCX、RapidOCR、坐标和文本偏移。Offline 与 Query 负责人不得复制格式解析代码。
-风险负责人主要修改：
+## 实现规范
 
-    src/query/
-    src/risk/
-    scripts/run_risk_pipeline.py
-    tests/query/
-    tests/risk/
+- 不在启动脚本中实现算法；
+- 不重复创建同义模型、文件读取器、案例库或 LLM 客户端；
+- 路径来自 `AppSettings`，不写个人绝对路径；
+- 原始数据、抽取事实和生成扩展分开保存；
+- 模型无法确认的案例字段保持空值，不臆造；
+- 检索结果只作证据，不等同于当前 Query 违规；
+- 停用代替物理删除，确需删除须先备份并明确审批；
+- 日志不得包含 API Key、完整用户 Query 或不必要的个人信息；
+- 新功能至少增加一个成功路径和一个失败/边界测试。
 
-负责 Query 文件输入、分类增强、多层次风险判断、概率和风险标签。
+## 提交前检查
 
-项目集成人主要修改：
+```powershell
+uv run ruff check .
+uv run mypy src
+uv run pytest -q
+node --check src/web/static/app.js
+```
 
-    src/domain/
-    src/application/
-    configs/
-    docs/
-    tests/domain/
-    tests/application/
+涉及数据时再核对 manifest 行数、SHA-256、主键唯一性和外键。涉及 Web 时检查三块页面、
+空状态、错误提示、移动端布局和停用确认。涉及 DeepSeek 时优先使用人工无敏感测试句；
+不得未经明确授权把真实用户材料外发。
 
-负责共享字段、案例管理边界、向量检索边界和跨模块联调。
+## 原始压缩包
 
-## 共享字段变更
-
-以下文件属于共享契约，不能由单个模块静默修改：
-
-- src/domain/common.py
-- src/domain/file_models.py
-- src/domain/case_models.py
-- src/domain/query_models.py
-- docs/data_contracts.md
-
-修改字段前必须说明：
-
-1. 为什么修改；
-2. 哪些模块受到影响；
-3. 历史中间数据或最终案例是否需要重建；
-4. 模型训练数据是否需要更新；
-5. 字段结构版本是否需要升级。
-
-代码和字段文档必须在同一次提交中更新。
-
-## 实现约定
-
-- 不在脚本中实现算法。
-- 不在 Application 中直接写模型推理代码。
-- 不在各模块重复创建相同含义的数据类。
-- 原始文本和增强文本必须使用不同字段。
-- 所有模型输出记录模型版本。
-- 所有风险标签记录标签体系版本和原文证据。
-- 配置文件不提交密钥、真实凭据或本机绝对路径。
-
-## 建议分支
-
-    feature/file-extraction
-    feature/offline-case-labeling
-    feature/offline-embedding
-    feature/query-classification
-    feature/risk-detection
-    feature/application-services
-
-每次提交尽量只修改一个模块。涉及 Domain 的提交应先由其他模块负责人确认。
+三个队员压缩包是本次整合的审计输入，运行时不读取。不要把解压后的重复 server、训练、
+实验、模型下载或另一份案例 JSONL 再复制到 `src`。是否归档/删除压缩包由团队在最终提交
+方式确定，代码仓库通过 `.gitignore` 忽略它们。

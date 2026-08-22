@@ -6,16 +6,18 @@ __pycache__/
 .ruff_cache/
 .env
 *.log
+*.zip
 
 data/raw/cases/*
 data/raw/query/*
-data/interim/extracted_cases/*
-data/interim/extracted_query/*
-data/interim/normalized_cases/*
-data/interim/train_data/*
-data/processed/cases/*
-data/processed/knowledge/*
+data/interim/
+data/processed/cases/
 !data/**/.gitkeep
+
+# 统一案例库是运行必需数据，不能被 processed 通配规则排除。
+data/processed/knowledge/*
+!data/processed/knowledge/case_kb_v2_1_2026-08-18/
+!data/processed/knowledge/case_kb_v2_1_2026-08-18/**
 
 models/
 checkpoints/

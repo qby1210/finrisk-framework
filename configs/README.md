@@ -1,11 +1,15 @@
-# 配置目录
+# 配置说明
 
-这里保存项目路径、文件读取器、模型、标签体系和运行参数配置。
+运行配置统一由 `src/settings.py` 和根目录 `.env` 管理；示例见 `.env.example`。不再保留未被
+代码加载的 YAML 占位配置，避免出现“文档有配置、运行时不生效”的双重来源。
 
-约定：
+可覆盖项：
 
-- 提交 example 配置，不提交密钥和真实服务地址。
-- 模型名称、模型版本、Prompt 版本必须分开记录。
-- 风险标签体系需要独立版本号。
-- 配置字段变更需要同步更新 docs。
-文件读取参数参考 extraction.example.yaml，包括 PDF 渲染 DPI、文本层质量阈值、OCR 置信度阈值和字词坐标开关。
+- `FINRISK_CASE_KB_ROOT`：统一案例库根目录；
+- `FINRISK_RISK_KEYWORD_PATH`：风险词库 JSON；
+- `FINRISK_RAW_CASE_UPLOAD_DIR`：Web 新案例原文件目录；
+- `FINRISK_MAX_UPLOAD_SIZE_BYTES`：上传上限；
+- `FINRISK_LLM_*` / `DEEPSEEK_API_KEY`：大模型连接参数。
+
+文件抽取默认参数由 `ExtractionConfig` 定义。需要新增可外部调整的参数时，先实现真实加载
+和校验，再补示例；不要只添加未使用的配置文件。

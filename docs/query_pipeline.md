@@ -1,131 +1,94 @@
-# Query 六分类增强与 Risk 输入契约
-
-## 目标
-
-Query 模块只负责读取输入、判断整份材料的使用场景、切分句子并保留原文定位。
-它不生成风险标签，也不读取案例库。Risk 模块只消费逐句四字段输入，不需要再次解析
-PDF、图片、DOCX 或文本。
+# Query 分类、切分、风险与案例匹配
 
 ## 六类场景
 
-| 编码 | 含义 |
+| 编码 | 使用场景 |
 | --- | --- |
-| `ST1_poster_sms_social` | 海报、短信、朋友圈短文案 |
+| `ST1_poster_sms_social` | 海报、短信、社交平台短文案 |
 | `ST2_live_short_video` | 直播、短视频、口播话术 |
-| `ST3_product_intro_detail` | 产品介绍、产品详情页 |
-| `ST4_meeting_material` | 产品说明会、客户答谢会材料 |
+| `ST3_product_intro_detail` | 产品介绍、详情页 |
+| `ST4_meeting_material` | 产品说明会、客户活动材料 |
 | `ST5_training_telemarketing_callback` | 培训、电销、回访流程话术 |
-| `ST6_penalty_backend_fact` | 监管处罚文书、后台业务事实 |
+| `ST6_penalty_backend_fact` | 处罚文书、后台业务事实 |
 
-`scene` 只表达材料场景；风险类别仍由 Risk 模块判断。
+场景描述材料用途，不是风险标签。整份材料只分类一次，所有句子继承同一 `scene`。
 
-## 分类策略
+规则分类器达到最低分、领先幅度和归一化置信度时直出；低置信或冲突时使用统一 LLM
+复核。没有 LLM 且规则无法可靠分类时返回 HTTP 503，不猜测类别。
 
-1. 合并文件读取器得到的全文，整份文件只分类一次。
-2. 规则分类器同时检查关键词、结构和格式，生成六类候选分数。
-3. 第一名达到高分阈值、领先第二名且归一化置信度足够时，直接返回规则结果。
-4. 无法分类、多类冲突或置信度不足时，调用统一 LLM 接口复核。
-5. LLM 仍只能从上述六类中选择，不得增加运行时兜底类别。
+## 切句与定位
 
-当前高置信度门槛为：规则分数至少 `6.0`、领先第二名至少 `2.5`、
-归一化置信度至少 `0.65`。门槛集中在 `src/query/classification.py`，后续可用真实
-Query 验证集校准。
+切句边界包括：中文/英文句末标点、连续空行、数字列表、常见项目符号和社交平台 Emoji
+项目符号。普通 OCR 软换行仍保留在句内，避免把扫描件的一句话按视觉行拆碎。
 
-统一 LLM 抽象位于 `src/llm`。当前默认使用 DeepSeek 的 OpenAI 兼容接口和
-`deepseek-v4-flash`；后续本地模型只需实现同一个 `LLMClient.complete_json`
-协议。DeepSeek V4 模型名见[官方更新日志](https://api-docs.deepseek.com/updates/)，
-结构化输出方式见[JSON Output 文档](https://api-docs.deepseek.com/guides/json_mode/)。
-
-## 环境变量
-
-不要把密钥写入源码或提交到 Git。启动服务前配置：
-
-```powershell
-$env:DEEPSEEK_API_KEY="<your-new-key>"
-$env:FINRISK_LLM_BASE_URL="https://api.deepseek.com"
-$env:FINRISK_LLM_MODEL="deepseek-v4-flash"
-```
-
-也可以用 `FINRISK_LLM_API_KEY` 代替 `DEEPSEEK_API_KEY`。切换兼容服务时只需修改
-`FINRISK_LLM_BASE_URL` 和 `FINRISK_LLM_MODEL`。
-
-## Risk 唯一输入
-
-`QueryProcessingResult.sentences` 是交给 Risk 的业务输入，每项严格只有四个字段：
+每个句子只向风险流水线提供四字段：
 
 ```json
 {
-  "query_id": "query_a1b2c3d4e5f6",
-  "sentence_id": "query_a1b2c3d4e5f6_s0001",
-  "scene": "ST1_poster_sms_social",
-  "text": "夏日专享理财活动火热开启。"
+  "query_id": "query_a1b2...",
+  "sentence_id": "query_a1b2..._s0001",
+  "scene": "ST3_product_intro_detail",
+  "text": "本产品绝对不会亏损。"
 }
 ```
 
-字段含义：
+`source_mappings` 与句子顺序一一对应，保存全文偏移、页码、文本块、字词 ID 和归一化
+四边形。Web 当前展示原句；后续做 PDF 高亮无需改变 Risk 输入。
 
-- `query_id`：一次 Query 请求内稳定的文档标识；
-- `sentence_id`：稳定句子标识，也是 Risk 结果回写和前端联表键；
-- `scene`：整份文件统一的六分类场景；
-- `text`：Risk 实际判断的原句。
+## 三层证据
 
-Risk 的风险概率、风险标签、相似案例和判断依据应按 `query_id + sentence_id` 关联，
-不要直接修改上述四字段契约。
+1. 刚性层：队员风险词库的 320 条规则与组合正则；
+2. 检索层：统一案例库中 fact/evidence chunks 和启用 expansions 的 BM25；
+3. 生成层：DeepSeek 批量逐句输出 `risk_score / risk_labels / reasoning`。
 
-## 原文定位
+大模型提示词明确要求判断当前文本本身，案例和规则只作为证据。输出标签只能来自案例库
+风险字典，未知标签被丢弃。
 
-`QueryProcessingResult.source_mappings` 与 `sentences` 顺序和 ID 一一对应，但不传给
-Risk 模型。每条定位记录包含：
+## 融合与门控
 
-- `query_id`、`sentence_id`；
-- `input_type`、`document_id`、`filename`；
-- `document_start_offset`、`document_end_offset`；
-- `regions[]`：`page_number`、`block_id`、`word_ids`、`polygon`、
-  `document_start_offset`、`document_end_offset`、`text`。
+DeepSeek 正常时沿用队员设计：
 
-网页后续拿 Risk 返回的 `sentence_id` 查找 `source_mappings`，即可定位原文。PDF/图片
-优先使用页码和多边形高亮；TXT、Markdown、DOCX 可使用全文字符偏移定位。OCR 句子跨越
-多个文本块时，一条映射会包含多个 region。
-
-## API
-
-### 分类器状态
-
-`GET /api/query/classifier`
-
-返回分类体系版本、分类器版本、规则版本、LLM 是否配置和当前模型名；不会返回密钥。
-
-### 文字输入
-
-`POST /api/query/analyze/text`
-
-```json
-{
-  "text": "现在下单即可领取积分好礼，点击链接了解详情。"
-}
+```text
+final = 0.2 × rule + 0.2 × retrieval + 0.6 × deepseek
 ```
 
-### 文件输入
+无 LLM 时，存在规则信号使用重新归一化的 `0.65 × rule + 0.35 × retrieval`。只有案例
+相似而没有独立规则信号时，检索权重降到 0.15，保证其单独不能越过 0.20 风险阈值。
+DeepSeek 明确给出低分时同样应用门控。
 
-`POST /api/query/analyze/file`
+风险等级：
 
-使用 `multipart/form-data` 的 `file` 字段上传文件，最大 25 MB。支持 PDF、常见图片、
-TXT、Markdown 和 DOCX。
+| 分数 | 等级 | 动作 |
+| --- | --- | --- |
+| `>= 0.85` | 高风险 | 拦截并人工复审 |
+| `>= 0.60` | 中风险 | 标记并提示修改 |
+| `>= 0.40` | 疑似风险 | 建议人工复查 |
+| `>= 0.20` | 低风险 | 记录并观察 |
+| `< 0.20` | 无明显风险 | 放行 |
 
-如果规则结果置信度不足且没有配置 LLM，接口返回 HTTP 503，不会假装给出一个分类；
-LLM 服务异常则返回 HTTP 502。
+旧风险包中 low 与 review 的阈值相同，导致低风险分支不可达；当前已修复。
 
-## 启动与验证
+标签优先使用 DeepSeek 和刚性规则。只有独立风险分不低于 0.40 且两者都没有输出标签时，
+才允许相似案例做标签桥接。相似案例始终可以作为解释展示，但不会污染当前文本标签。
 
-```powershell
-uv sync --dev
-uv run python scripts/run_web.py
-```
+## API 输出
 
-网站地址：`http://127.0.0.1:8000`；接口文档：`http://127.0.0.1:8000/docs`。
+`POST /api/query/analyze/text` 与 `/file` 返回 `QueryAnalysisResult` 3.0：
 
-```powershell
-uv run ruff check src tests scripts
-uv run mypy src
-uv run pytest -q
-```
+- Query 分类、逐句四字段和原文映射；
+- `risk_summary`：整体最高风险、标签、风险句数、LLM 使用情况和警告；
+- `risk_assessments[]`：逐句分数、等级、动作、标签、理由、证据和相似案例。
+
+接口错误：
+
+- 413：文件超过限制；
+- 422：文件无法抽取或请求字段不合法；
+- 502：需要 LLM 时供应商失败；
+- 503：分类需要 LLM 但没有配置。
+
+## 真实样本校准记录
+
+第一条 `小红书文案原文.txt` 在完全本地模式下被识别为产品介绍/详情页。修复门控后，
+普通保额、赔付限额、免赔额描述均低于 0.20 且标签为空；“从不扯皮”命中绝对服务承诺
+规则，被判为中风险，标签为“绝对化表述、虚假宣传”。这比“相似处罚案例即定性”的旧结果
+更符合审查常识。

@@ -1,6 +1,0 @@
-# 文件读取配置示例。
-pdf_render_dpi: 200
-min_native_text_chars: 20
-min_native_text_quality: 0.65
-min_ocr_confidence: 0.0
-include_word_boxes: true

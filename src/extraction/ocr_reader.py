@@ -87,10 +87,7 @@ class RapidOcrReader:
         warnings: list[str] = []
         if not blocks:
             warnings.append("RapidOCR 未识别到文本")
-        if (
-            average_confidence is not None
-            and average_confidence < self._config.min_ocr_confidence
-        ):
+        if average_confidence is not None and average_confidence < self._config.min_ocr_confidence:
             warnings.append(
                 "RapidOCR 平均置信度低于配置阈值："
                 f"{average_confidence:.4f} < {self._config.min_ocr_confidence:.4f}"
@@ -141,22 +138,17 @@ class RapidOcrReader:
         return words
 
 
-
-
 def _iter_word_values(value: object) -> Iterator[list[object]]:
     """递归展开 RapidOCR 的行级嵌套字词结果。"""
 
     values = _as_list(value)
-    if (
-        len(values) >= 3
-        and isinstance(values[0], str)
-        and _as_float(values[1]) is not None
-    ):
+    if len(values) >= 3 and isinstance(values[0], str) and _as_float(values[1]) is not None:
         yield values
         return
 
     for child in values:
         yield from _iter_word_values(child)
+
 
 def _as_list(value: object) -> list[object]:
     """把元组、列表或 NumPy 数组安全转换为普通列表。"""

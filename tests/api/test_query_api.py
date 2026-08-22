@@ -1,4 +1,4 @@
-"""FastAPI 六类 Query 分类与原文映射接口测试。"""
+"""FastAPI Query 分类、切句、风险判断与案例匹配接口测试。"""
 
 from fastapi.testclient import TestClient
 
@@ -21,7 +21,7 @@ def test_index_serves_workbench() -> None:
     assert response.status_code == 200
     assert "风险查询" in response.text
     assert "案例录入" in response.text
-    assert "全部案例" in response.text
+    assert "案例管理" in response.text
 
 
 def test_classifier_status_reports_rule_and_llm_state() -> None:
@@ -32,7 +32,7 @@ def test_classifier_status_reports_rule_and_llm_state() -> None:
     assert response.json()["taxonomy_version"] == "query-scene-2.0"
 
 
-def test_text_query_endpoint_returns_exact_risk_sentence_fields() -> None:
+def test_text_query_endpoint_returns_risk_and_mapping_fields() -> None:
     response = client.post(
         "/api/query/analyze/text",
         json={"text": "营销海报，限时活动现已开启！立即扫码领取专属权益。"},
@@ -44,6 +44,9 @@ def test_text_query_endpoint_returns_exact_risk_sentence_fields() -> None:
     assert len(payload["sentences"]) == 2
     assert set(payload["sentences"][0]) == {"query_id", "sentence_id", "scene", "text"}
     assert payload["sentences"][0]["sentence_id"] == payload["source_mappings"][0]["sentence_id"]
+    assert payload["schema_version"] == "3.0"
+    assert len(payload["risk_assessments"]) == len(payload["sentences"])
+    assert 0 <= payload["risk_summary"]["overall_score"] <= 1
 
 
 def test_file_query_endpoint_returns_source_regions() -> None:
