@@ -118,12 +118,15 @@ class ExtractedTable(ContractModel):
     page_number: int | None = Field(default=None, ge=1, description="表格所在页码")
     title: str | None = Field(default=None, description="表格标题")
     rows: list[list[str]] = Field(default_factory=list, description="按行保存的单元格文本")
+    page_numbers: list[int] = Field(default_factory=list, description="跨页表格涉及的全部页码")
+    confidence: float | None = Field(default=None, ge=0, le=1, description="表格抽取置信度")
+    is_cross_page: bool = Field(default=False, description="是否由连续页面同表合并")
 
 
 class FileExtractionResult(ContractModel):
     """文件读取完成后交给后续模块的统一结果。"""
 
-    schema_version: str = Field(default="1.1", description="当前字段结构版本")
+    schema_version: str = Field(default="1.2", description="当前字段结构版本")
     document_id: str = Field(description="文件稳定标识，当前使用文件 SHA-256")
     file_purpose: FilePurpose = Field(description="文件用途：案例或 Query")
     source_filename: str = Field(description="上传或批量导入时的原始文件名")

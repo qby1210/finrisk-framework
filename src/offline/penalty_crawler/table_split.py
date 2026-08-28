@@ -53,7 +53,7 @@ def _expand_rows(clob_html: str) -> list[list[str]]:
     会让后续行的单元格整体左移错位（案由装进文号、处罚装进案由等）。
     """
     expanded: list[list[str]] = []
-    carry: dict[int, list] = {}  # 列号 -> [跨行值, 剩余行数]
+    carry: dict[int, tuple[str, int]] = {}  # 列号 -> (跨行值, 剩余行数)
     for m in _ROW_RE.finditer(clob_html):
         raw_cells = _CELL_FULL_RE.findall(m.group(1))
         row: dict[int, str] = {}
@@ -62,7 +62,7 @@ def _expand_rows(clob_html: str) -> list[list[str]]:
         while True:
             if col in carry and carry[col][1] > 0:
                 row[col] = carry[col][0]
-                carry[col][1] -= 1
+                carry[col] = (carry[col][0], carry[col][1] - 1)
                 col += 1
                 continue
             if ci < len(raw_cells):
@@ -72,7 +72,7 @@ def _expand_rows(clob_html: str) -> list[list[str]]:
                 row[col] = value
                 rs = _ROWSPAN_RE.search(attrs)
                 if rs and int(rs.group(1)) > 1:
-                    carry[col] = [value, int(rs.group(1)) - 1]
+                    carry[col] = (value, int(rs.group(1)) - 1)
                 col += 1
                 continue
             break

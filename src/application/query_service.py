@@ -6,7 +6,7 @@ from pathlib import Path
 
 from domain.common import FilePurpose, QueryInputType
 from domain.file_models import FileExtractionResult
-from domain.query_models import QueryProcessingResult
+from domain.query_models import QueryProcessingResult, QueryScene
 from extraction import FileExtractor
 from llm import LLMClient, create_llm_client_from_env
 from query.classification import ClassifierStatus, QuerySceneClassifier
@@ -37,6 +37,7 @@ class QueryProcessingService:
         text: str,
         *,
         metadata: Mapping[str, object] | None = None,
+        scene: QueryScene | None = None,
     ) -> QueryProcessingResult:
         """对文字输入进行场景分类、切句和偏移映射。"""
 
@@ -45,6 +46,7 @@ class QueryProcessingService:
             self.classifier,
             input_type=QueryInputType.TEXT,
             metadata=metadata,
+            scene_override=scene,
         )
 
     async def process_file(
@@ -53,6 +55,7 @@ class QueryProcessingService:
         *,
         source_uri: str | None = None,
         metadata: Mapping[str, object] | None = None,
+        scene: QueryScene | None = None,
     ) -> QueryProcessingResult:
         """在线程中读取文件，再异步执行规则或 LLM 场景分类。"""
 
@@ -63,13 +66,14 @@ class QueryProcessingService:
             source_uri=source_uri,
             metadata=metadata,
         )
-        return await self.process_extraction(extraction, metadata=metadata)
+        return await self.process_extraction(extraction, metadata=metadata, scene=scene)
 
     async def process_extraction(
         self,
         extraction: FileExtractionResult,
         *,
         metadata: Mapping[str, object] | None = None,
+        scene: QueryScene | None = None,
     ) -> QueryProcessingResult:
         """消费已有抽取结果，不再读取原始文件。"""
 
@@ -95,4 +99,5 @@ class QueryProcessingService:
             input_type=QueryInputType.FILE,
             extraction=extraction,
             metadata=output_metadata,
+            scene_override=scene,
         )

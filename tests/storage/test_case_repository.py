@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from application.retrieval_service import CaseRetrievalService
+from application.retrieval_service import CaseRetrievalService, CaseSearchFilters
 from settings import AppSettings
 from storage.case_repository import CaseRepository, DuplicateCaseError
 
@@ -31,6 +32,11 @@ def _settings(tmp_path: Path) -> AppSettings:
         "case_origin": "batch_build",
         "violation_behavior": "销售人员向客户承诺保本并保证年化收益。",
         "penalty_content": "责令改正并处罚款。",
+        "party_name": "甲保险公司某分公司",
+        "regulator": "国家金融监督管理总局甲监管分局",
+        "institution_type": "保险公司分支机构",
+        "penalty_date": "2026-06-18",
+        "source_url": "https://example.test/C001",
         "risk_tags": ["承诺收益", "销售误导"],
         "risk_domains": ["销售行为"],
         "retrieval_status": "active",
@@ -83,6 +89,43 @@ def test_repository_reads_and_retrieves_existing_case(tmp_path: Path) -> None:
     aligned = service.search("保证收益百分之十", top_k=3, risk_tags={"承诺收益"})
     assert aligned[0].matched_risk_tags == ["承诺收益"]
     assert service.search("保证收益百分之十", top_k=3, risk_tags={"赠送利益"}) == []
+
+
+def test_retrieval_and_repository_support_combined_metadata_filters(tmp_path: Path) -> None:
+    repository = CaseRepository(_settings(tmp_path))
+    service = CaseRetrievalService(repository)
+    filters = CaseSearchFilters(
+        risk_tags=frozenset({"承诺收益"}),
+        regulator="甲监管分局",
+        party_name="甲保险公司",
+        institution_type="分支机构",
+        penalty_date_from=date(2026, 1, 1),
+        penalty_date_to=date(2026, 12, 31),
+    )
+
+    matches = service.search("保证收益百分之十", top_k=3, filters=filters)
+
+    assert matches[0].party_name == "甲保险公司某分公司"
+    assert matches[0].institution_type == "保险公司分支机构"
+    assert matches[0].source_url == "https://example.test/C001"
+    assert "风险标签一致" in matches[0].match_reason
+    assert "过滤条件" in matches[0].match_reason
+    assert (
+        service.search(
+            "保证收益百分之十",
+            filters=CaseSearchFilters(regulator="不存在的监管机构"),
+        )
+        == []
+    )
+    page = repository.list_cases(
+        regulator="甲监管分局",
+        party_name="甲保险公司",
+        institution_type="分支机构",
+        penalty_date_from=date(2026, 6, 1),
+        penalty_date_to=date(2026, 6, 30),
+    )
+    assert page.total == 1
+    assert page.items[0].institution_type == "保险公司分支机构"
 
 
 def test_incremental_case_joins_same_files_and_can_be_deactivated(tmp_path: Path) -> None:

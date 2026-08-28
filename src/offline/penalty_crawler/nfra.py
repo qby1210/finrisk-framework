@@ -9,6 +9,7 @@
 """
 
 from pathlib import Path
+from typing import Any, TypedDict
 
 from .common import (
     FetchError,
@@ -41,7 +42,16 @@ COLUMNS = {
 PAGE_SIZE = 18
 
 
-def _list_page(item_id: int, page: int, delay: float) -> dict:
+class ColumnStats(TypedDict):
+    column: int
+    pages: int
+    new: int
+    skipped: int
+    empty: int
+    errors: int
+
+
+def _list_page(item_id: int, page: int, delay: float) -> dict[str, Any]:
     """列表：先试 CDN 静态 JSON，404/失败回退动态接口。"""
     try:
         return load_json(LIST_URL.format(item_id=item_id, page=page), delay=delay)
@@ -53,7 +63,7 @@ def _list_page(item_id: int, page: int, delay: float) -> dict:
         )
 
 
-def _doc_text(doc_id: int, delay: float) -> tuple[str, dict, str]:
+def _doc_text(doc_id: int, delay: float) -> tuple[str, dict[str, str], str]:
     """取详情 JSON（CDN 失败回退动态接口），返回 (纯文本正文, 详情元数据, docClob 原文)。"""
     try:
         payload = load_json(DETAIL_URL.format(doc_id=doc_id), delay=delay)
@@ -79,12 +89,19 @@ def crawl_column(
     full: bool = False,
     max_pages: int = 0,
     delay: float = 1.5,
-) -> dict:
+) -> ColumnStats:
     """抓取单个栏目。返回统计；失败记录写 errors.jsonl。"""
     text_dir = out_dir / "nfra" / str(item_id)
     index_path = out_dir / "index.jsonl"
     errors_path = out_dir / "errors.jsonl"
-    stats = {"column": item_id, "pages": 0, "new": 0, "skipped": 0, "empty": 0, "errors": 0}
+    stats: ColumnStats = {
+        "column": item_id,
+        "pages": 0,
+        "new": 0,
+        "skipped": 0,
+        "empty": 0,
+        "errors": 0,
+    }
 
     page = 1
     total_pages: int | None = None
@@ -99,8 +116,10 @@ def crawl_column(
             append_jsonl(
                 errors_path,
                 {
-                    "source": "nfra", "column": item_id,
-                    "page": page, "error": str(exc),
+                    "source": "nfra",
+                    "column": item_id,
+                    "page": page,
+                    "error": str(exc),
                 },
             )
             stats["errors"] += 1
@@ -137,28 +156,33 @@ def crawl_column(
             title = row.get("docSubtitle") or row.get("docTitle") or ""
             publish_date = row.get("publishDate") or ""
             # 汇总公示表拆行：一案一条 txt；拆不出则保留整篇
-            cases = extract_table_cases(
-                clob, source_title=title, publish_date=publish_date[:10]
-            ) if clob else []
+            cases = (
+                extract_table_cases(clob, source_title=title, publish_date=publish_date[:10])
+                if clob
+                else []
+            )
             parts = cases if cases else [text]
             for part_index, part in enumerate(parts, 1):
                 txt_name = f"{doc_id}.txt" if len(parts) == 1 else f"{doc_id}_r{part_index}.txt"
                 write_text(text_dir / txt_name, part)
-                append_jsonl(index_path, {
-                    "source": "nfra",
-                    "column": item_id,
-                    "column_name": COLUMNS.get(item_id, str(item_id)),
-                    "doc_id": doc_id,
-                    "part": part_index if len(parts) > 1 else None,
-                    "split_from_list": bool(cases),
-                    "title": title,
-                    "publish_date": publish_date,
-                    "document_no": meta["document_no"],
-                    "source_url": PAGE_URL.format(doc_id=doc_id, item_id=item_id),
-                    "pdf_url": meta["pdf_url"],
-                    "txt_path": str(text_dir / txt_name),
-                    "sha1": sha1_text(part),
-                })
+                append_jsonl(
+                    index_path,
+                    {
+                        "source": "nfra",
+                        "column": item_id,
+                        "column_name": COLUMNS.get(item_id, str(item_id)),
+                        "doc_id": doc_id,
+                        "part": part_index if len(parts) > 1 else None,
+                        "split_from_list": bool(cases),
+                        "title": title,
+                        "publish_date": publish_date,
+                        "document_no": meta["document_no"],
+                        "source_url": PAGE_URL.format(doc_id=doc_id, item_id=item_id),
+                        "pdf_url": meta["pdf_url"],
+                        "txt_path": str(text_dir / txt_name),
+                        "sha1": sha1_text(part),
+                    },
+                )
                 stats["new"] += 1
             state.add(key)
         state.save()
@@ -177,10 +201,10 @@ def crawl_all(
     max_pages: int = 0,
     delay: float = 1.5,
     columns: list[int] | None = None,
-) -> list[dict]:
+) -> list[ColumnStats]:
     state = StateStore(out_dir / "state.json")
-    results = []
-    for item_id in (columns or list(COLUMNS)):
+    results: list[ColumnStats] = []
+    for item_id in columns or list(COLUMNS):
         results.append(
             crawl_column(item_id, out_dir, state, full=full, max_pages=max_pages, delay=delay)
         )

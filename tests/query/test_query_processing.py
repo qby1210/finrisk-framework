@@ -7,7 +7,7 @@ import pytest
 from domain.common import QueryInputType
 from domain.query_models import QueryClassificationMethod, QueryScene
 from llm.types import JsonChatRequest, JsonChatResponse
-from query.classification import LLMRequiredError, QuerySceneClassifier
+from query.classification import QuerySceneClassifier
 from query.enhancement import prepare_query, split_sentences
 
 
@@ -96,14 +96,33 @@ def test_ambiguous_rule_result_uses_llm() -> None:
     assert fake_llm.call_count == 1
 
 
-def test_low_confidence_requires_configured_llm() -> None:
-    """规则无法可靠分类且无 LLM 时必须显式失败，不得猜测场景。"""
+def test_low_confidence_without_llm_uses_local_fallback() -> None:
+    """无 LLM 时必须返回可识别的本地回退结果，保证离线流程可运行。"""
 
     classifier = QuerySceneClassifier(None)
+    result = asyncio.run(classifier.classify("这是今天整理的一份材料。"))
 
-    with pytest.raises(LLMRequiredError):
-        asyncio.run(classifier.classify("这是今天整理的一份材料。"))
+    assert result.scene is QueryScene.ST1_POSTER_SMS_SOCIAL
+    assert result.method is QueryClassificationMethod.RULE_FALLBACK
+    assert result.evidence
 
+
+def test_user_scene_override_skips_rule_and_llm() -> None:
+    """用户显式选择场景时应原样采用，并跳过模型调用。"""
+
+    fake_llm = FakeLLMClient(QueryScene.ST1_POSTER_SMS_SOCIAL)
+    classifier = QuerySceneClassifier(fake_llm)
+    result = asyncio.run(
+        classifier.classify(
+            "这是一份很难仅靠文本判断载体的材料。",
+            scene_override=QueryScene.ST4_MEETING_MATERIAL,
+        )
+    )
+
+    assert result.scene is QueryScene.ST4_MEETING_MATERIAL
+    assert result.method is QueryClassificationMethod.USER
+    assert result.confidence == 1.0
+    assert fake_llm.call_count == 0
 
 def test_sentence_split_preserves_text_and_offsets() -> None:
     """切句后应能用偏移从原文精确还原每句话。"""

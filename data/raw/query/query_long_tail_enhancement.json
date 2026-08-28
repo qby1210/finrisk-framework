@@ -1,0 +1,699 @@
+{
+  "schema_version": "query_long_tail_v1",
+  "created_at": "2026-08-28",
+  "language": "zh-CN",
+  "purpose": "补强 160 基准中频次不超过 10 的明确风险标签",
+  "selection_policy": "不增强兜底类‘其他’；每个目标标签 4 条；所有样本须人工复核后才能进入训练",
+  "target_labels": [
+    "未按规定使用费率条款",
+    "虚列费用套取资金",
+    "电销违规",
+    "委托无资质机构销售",
+    "回访违规",
+    "避债避税",
+    "虚构收益率",
+    "欺骗投保人",
+    "贬低竞品"
+  ],
+  "annotation_status": "synthetic_pending_human_review",
+  "statistics": {
+    "total": 36,
+    "scene_distribution": {
+      "ST6_penalty_backend_fact": 12,
+      "ST5_training_telemarketing_callback": 8,
+      "ST3_product_intro_detail": 8,
+      "ST1_poster_sms_social": 4,
+      "ST2_live_short_video": 4
+    },
+    "length_distribution": {
+      "short": 36
+    },
+    "risk_label_distribution": {
+      "未按规定使用费率条款": 4,
+      "虚列费用套取资金": 4,
+      "电销违规": 4,
+      "销售误导": 16,
+      "委托无资质机构销售": 4,
+      "代理人管理不到位": 4,
+      "回访违规": 4,
+      "客户信息不真实": 4,
+      "避债避税": 4,
+      "虚构收益率": 4,
+      "夸大收益": 4,
+      "虚假宣传": 4,
+      "欺骗投保人": 4,
+      "贬低竞品": 4,
+      "不当比较": 4
+    }
+  },
+  "samples": [
+    {
+      "query_id": "LT-001",
+      "target_long_tail_label": "未按规定使用费率条款",
+      "source_test_frequency": 2,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "系统抽查发现，该业务实际收取的保险费与经审批备案的费率条款不一致。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "未按规定使用费率条款"
+      ],
+      "evidence": [
+        "系统抽查发现，该业务实际收取的保险费与经审批备案的费率条款不一致。"
+      ],
+      "rationale": "围绕低频标签“未按规定使用费率条款”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-002",
+      "target_long_tail_label": "未按规定使用费率条款",
+      "source_test_frequency": 2,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "为促成签单，机构自行下调保费，未按照报批报备的费率方案执行。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "未按规定使用费率条款"
+      ],
+      "evidence": [
+        "为促成签单，机构自行下调保费，未按照报批报备的费率方案执行。"
+      ],
+      "rationale": "围绕低频标签“未按规定使用费率条款”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-003",
+      "target_long_tail_label": "未按规定使用费率条款",
+      "source_test_frequency": 2,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "业务台账显示，同类客户被采用两套未备案的费率口径计算保费。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "未按规定使用费率条款"
+      ],
+      "evidence": [
+        "业务台账显示，同类客户被采用两套未备案的费率口径计算保费。"
+      ],
+      "rationale": "围绕低频标签“未按规定使用费率条款”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-004",
+      "target_long_tail_label": "未按规定使用费率条款",
+      "source_test_frequency": 2,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "分支机构以活动折扣名义改变费率，相关方案未经规定程序审批。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "未按规定使用费率条款"
+      ],
+      "evidence": [
+        "分支机构以活动折扣名义改变费率，相关方案未经规定程序审批。"
+      ],
+      "rationale": "围绕低频标签“未按规定使用费率条款”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-005",
+      "target_long_tail_label": "虚列费用套取资金",
+      "source_test_frequency": 4,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "财务凭证显示，机构虚列会议费后将资金转入个人账户用于业务维护。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚列费用套取资金"
+      ],
+      "evidence": [
+        "财务凭证显示，机构虚列会议费后将资金转入个人账户用于业务维护。"
+      ],
+      "rationale": "围绕低频标签“虚列费用套取资金”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-006",
+      "target_long_tail_label": "虚列费用套取资金",
+      "source_test_frequency": 4,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "公司通过伪造宣传品采购合同虚增费用，套取资金支付渠道奖励。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚列费用套取资金"
+      ],
+      "evidence": [
+        "公司通过伪造宣传品采购合同虚增费用，套取资金支付渠道奖励。"
+      ],
+      "rationale": "围绕低频标签“虚列费用套取资金”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-007",
+      "target_long_tail_label": "虚列费用套取资金",
+      "source_test_frequency": 4,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "审计发现多笔并未实际发生的培训费，报销款被用于返还客户。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚列费用套取资金"
+      ],
+      "evidence": [
+        "审计发现多笔并未实际发生的培训费，报销款被用于返还客户。"
+      ],
+      "rationale": "围绕低频标签“虚列费用套取资金”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-008",
+      "target_long_tail_label": "虚列费用套取资金",
+      "source_test_frequency": 4,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "分支机构虚构咨询服务项目列支费用，再将资金转给销售团队使用。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚列费用套取资金"
+      ],
+      "evidence": [
+        "分支机构虚构咨询服务项目列支费用，再将资金转给销售团队使用。"
+      ],
+      "rationale": "围绕低频标签“虚列费用套取资金”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-009",
+      "target_long_tail_label": "电销违规",
+      "source_test_frequency": 5,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：电销话术材料】坐席无需说明来电目的，直接把保险产品介绍成银行存款。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "电销违规",
+        "销售误导"
+      ],
+      "evidence": [
+        "坐席无需说明来电目的，直接把保险产品介绍成银行存款。"
+      ],
+      "rationale": "围绕低频标签“电销违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-010",
+      "target_long_tail_label": "电销违规",
+      "source_test_frequency": 5,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：电销话术材料】客户拒绝后仍连续拨打，并要求统一使用保证回本的促成说法。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "电销违规",
+        "销售误导"
+      ],
+      "evidence": [
+        "客户拒绝后仍连续拨打，并要求统一使用保证回本的促成说法。"
+      ],
+      "rationale": "围绕低频标签“电销违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-011",
+      "target_long_tail_label": "电销违规",
+      "source_test_frequency": 5,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：电销话术材料】通话中隐去保险公司名称，只强调这是银行客户专享收益。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "电销违规",
+        "销售误导"
+      ],
+      "evidence": [
+        "通话中隐去保险公司名称，只强调这是银行客户专享收益。"
+      ],
+      "rationale": "围绕低频标签“电销违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-012",
+      "target_long_tail_label": "电销违规",
+      "source_test_frequency": 5,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：电销话术材料】未取得客户同意即可开始销售，录音不完整的通话也可提交承保。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "电销违规",
+        "销售误导"
+      ],
+      "evidence": [
+        "未取得客户同意即可开始销售，录音不完整的通话也可提交承保。"
+      ],
+      "rationale": "围绕低频标签“电销违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-013",
+      "target_long_tail_label": "委托无资质机构销售",
+      "source_test_frequency": 5,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "机构将保险销售工作整体交给未取得相应业务许可的科技公司实施。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "委托无资质机构销售",
+        "代理人管理不到位"
+      ],
+      "evidence": [
+        "机构将保险销售工作整体交给未取得相应业务许可的科技公司实施。"
+      ],
+      "rationale": "围绕低频标签“委托无资质机构销售”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-014",
+      "target_long_tail_label": "委托无资质机构销售",
+      "source_test_frequency": 5,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "后台记录显示，多笔保单由没有保险销售资质的第三方平台人员促成。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "委托无资质机构销售",
+        "代理人管理不到位"
+      ],
+      "evidence": [
+        "后台记录显示，多笔保单由没有保险销售资质的第三方平台人员促成。"
+      ],
+      "rationale": "围绕低频标签“委托无资质机构销售”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-015",
+      "target_long_tail_label": "委托无资质机构销售",
+      "source_test_frequency": 5,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "分支机构与普通咨询公司签约，由该公司直接向客户讲解并销售保险。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "委托无资质机构销售",
+        "代理人管理不到位"
+      ],
+      "evidence": [
+        "分支机构与普通咨询公司签约，由该公司直接向客户讲解并销售保险。"
+      ],
+      "rationale": "围绕低频标签“委托无资质机构销售”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-016",
+      "target_long_tail_label": "委托无资质机构销售",
+      "source_test_frequency": 5,
+      "scene": "ST6_penalty_backend_fact",
+      "length_bucket": "short",
+      "query": "机构通过无资质的社区服务站代收投保资料并完成产品推荐。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "委托无资质机构销售",
+        "代理人管理不到位"
+      ],
+      "evidence": [
+        "机构通过无资质的社区服务站代收投保资料并完成产品推荐。"
+      ],
+      "rationale": "围绕低频标签“委托无资质机构销售”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-017",
+      "target_long_tail_label": "回访违规",
+      "source_test_frequency": 6,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：客户回访材料】销售人员先把标准答案发给客户，再由回访人员照表确认。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "回访违规",
+        "客户信息不真实"
+      ],
+      "evidence": [
+        "销售人员先把标准答案发给客户，再由回访人员照表确认。"
+      ],
+      "rationale": "围绕低频标签“回访违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-018",
+      "target_long_tail_label": "回访违规",
+      "source_test_frequency": 6,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：客户回访材料】客户明确表示不了解免责条款，坐席仍将该项记录为已知晓。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "回访违规",
+        "客户信息不真实"
+      ],
+      "evidence": [
+        "客户明确表示不了解免责条款，坐席仍将该项记录为已知晓。"
+      ],
+      "rationale": "围绕低频标签“回访违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-019",
+      "target_long_tail_label": "回访违规",
+      "source_test_frequency": 6,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：客户回访材料】未完成电话回访，系统中却被人工勾选为回访成功。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "回访违规",
+        "客户信息不真实"
+      ],
+      "evidence": [
+        "未完成电话回访，系统中却被人工勾选为回访成功。"
+      ],
+      "rationale": "围绕低频标签“回访违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-020",
+      "target_long_tail_label": "回访违规",
+      "source_test_frequency": 6,
+      "scene": "ST5_training_telemarketing_callback",
+      "length_bucket": "short",
+      "query": "【材料载体：客户回访材料】回访录音由销售人员代答，客户本人并未参加。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "回访违规",
+        "客户信息不真实"
+      ],
+      "evidence": [
+        "回访录音由销售人员代答，客户本人并未参加。"
+      ],
+      "rationale": "围绕低频标签“回访违规”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-021",
+      "target_long_tail_label": "避债避税",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "产品详情宣称购买该保险后任何债权人都无法追索，资产绝对安全。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "避债避税",
+        "销售误导"
+      ],
+      "evidence": [
+        "产品详情宣称购买该保险后任何债权人都无法追索，资产绝对安全。"
+      ],
+      "rationale": "围绕低频标签“避债避税”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-022",
+      "target_long_tail_label": "避债避税",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "宣传页写明保单收益完全免税，不受未来税收政策变化影响。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "避债避税",
+        "销售误导"
+      ],
+      "evidence": [
+        "宣传页写明保单收益完全免税，不受未来税收政策变化影响。"
+      ],
+      "rationale": "围绕低频标签“避债避税”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-023",
+      "target_long_tail_label": "避债避税",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "销售材料称只要把资金放进保单，就能合法隔离全部婚姻和债务风险。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "避债避税",
+        "销售误导"
+      ],
+      "evidence": [
+        "销售材料称只要把资金放进保单，就能合法隔离全部婚姻和债务风险。"
+      ],
+      "rationale": "围绕低频标签“避债避税”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-024",
+      "target_long_tail_label": "避债避税",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "页面承诺保险金不会进入遗产处理程序，可以无条件规避税费。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "避债避税",
+        "销售误导"
+      ],
+      "evidence": [
+        "页面承诺保险金不会进入遗产处理程序，可以无条件规避税费。"
+      ],
+      "rationale": "围绕低频标签“避债避税”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-025",
+      "target_long_tail_label": "虚构收益率",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "产品页面展示并不存在的年化12%历史收益率，且未说明计算来源。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚构收益率",
+        "夸大收益",
+        "虚假宣传",
+        "销售误导"
+      ],
+      "evidence": [
+        "产品页面展示并不存在的年化12%历史收益率，且未说明计算来源。"
+      ],
+      "rationale": "围绕低频标签“虚构收益率”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-026",
+      "target_long_tail_label": "虚构收益率",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "宣传材料把演示数据写成过去五年每年固定增长8%，实际没有对应记录。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚构收益率",
+        "夸大收益",
+        "虚假宣传",
+        "销售误导"
+      ],
+      "evidence": [
+        "宣传材料把演示数据写成过去五年每年固定增长8%，实际没有对应记录。"
+      ],
+      "rationale": "围绕低频标签“虚构收益率”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-027",
+      "target_long_tail_label": "虚构收益率",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "详情页虚构同类账户连续十年正收益，并将其作为未来回报依据。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚构收益率",
+        "夸大收益",
+        "虚假宣传",
+        "销售误导"
+      ],
+      "evidence": [
+        "详情页虚构同类账户连续十年正收益，并将其作为未来回报依据。"
+      ],
+      "rationale": "围绕低频标签“虚构收益率”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-028",
+      "target_long_tail_label": "虚构收益率",
+      "source_test_frequency": 7,
+      "scene": "ST3_product_intro_detail",
+      "length_bucket": "short",
+      "query": "产品介绍引用未经证实的复利回报表，声称三年收益可达到本金的40%。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "虚构收益率",
+        "夸大收益",
+        "虚假宣传",
+        "销售误导"
+      ],
+      "evidence": [
+        "产品介绍引用未经证实的复利回报表，声称三年收益可达到本金的40%。"
+      ],
+      "rationale": "围绕低频标签“虚构收益率”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-029",
+      "target_long_tail_label": "欺骗投保人",
+      "source_test_frequency": 8,
+      "scene": "ST1_poster_sms_social",
+      "length_bucket": "short",
+      "query": "营销短信把保险说成银行定期存款，并声称到期可随时取回全部本金。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "欺骗投保人",
+        "销售误导"
+      ],
+      "evidence": [
+        "营销短信把保险说成银行定期存款，并声称到期可随时取回全部本金。"
+      ],
+      "rationale": "围绕低频标签“欺骗投保人”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-030",
+      "target_long_tail_label": "欺骗投保人",
+      "source_test_frequency": 8,
+      "scene": "ST1_poster_sms_social",
+      "length_bucket": "short",
+      "query": "朋友圈文案故意隐瞒保险产品属性，让客户误以为是监管部门推出的福利。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "欺骗投保人",
+        "销售误导"
+      ],
+      "evidence": [
+        "朋友圈文案故意隐瞒保险产品属性，让客户误以为是监管部门推出的福利。"
+      ],
+      "rationale": "围绕低频标签“欺骗投保人”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-031",
+      "target_long_tail_label": "欺骗投保人",
+      "source_test_frequency": 8,
+      "scene": "ST1_poster_sms_social",
+      "length_bucket": "short",
+      "query": "海报伪称该产品由政府兜底，实际合同中不存在任何此类保证。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "欺骗投保人",
+        "销售误导"
+      ],
+      "evidence": [
+        "海报伪称该产品由政府兜底，实际合同中不存在任何此类保证。"
+      ],
+      "rationale": "围绕低频标签“欺骗投保人”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-032",
+      "target_long_tail_label": "欺骗投保人",
+      "source_test_frequency": 8,
+      "scene": "ST1_poster_sms_social",
+      "length_bucket": "short",
+      "query": "短文案将十年缴费期说成一次存款，诱使客户在不知情时完成投保。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "欺骗投保人",
+        "销售误导"
+      ],
+      "evidence": [
+        "短文案将十年缴费期说成一次存款，诱使客户在不知情时完成投保。"
+      ],
+      "rationale": "围绕低频标签“欺骗投保人”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-033",
+      "target_long_tail_label": "贬低竞品",
+      "source_test_frequency": 10,
+      "scene": "ST2_live_short_video",
+      "length_bucket": "short",
+      "query": "直播口播称其他公司的同类保险都是骗人的，只有本公司产品可靠。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "贬低竞品",
+        "不当比较"
+      ],
+      "evidence": [
+        "直播口播称其他公司的同类保险都是骗人的，只有本公司产品可靠。"
+      ],
+      "rationale": "围绕低频标签“贬低竞品”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-034",
+      "target_long_tail_label": "贬低竞品",
+      "source_test_frequency": 10,
+      "scene": "ST2_live_short_video",
+      "length_bucket": "short",
+      "query": "主播没有提供数据便断言竞品理赔最差、服务完全没有保障。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "贬低竞品",
+        "不当比较"
+      ],
+      "evidence": [
+        "主播没有提供数据便断言竞品理赔最差、服务完全没有保障。"
+      ],
+      "rationale": "围绕低频标签“贬低竞品”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-035",
+      "target_long_tail_label": "贬低竞品",
+      "source_test_frequency": 10,
+      "scene": "ST2_live_short_video",
+      "length_bucket": "short",
+      "query": "短视频脚本要求直接点名竞争公司，并称其产品购买后一定会后悔。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "贬低竞品",
+        "不当比较"
+      ],
+      "evidence": [
+        "短视频脚本要求直接点名竞争公司，并称其产品购买后一定会后悔。"
+      ],
+      "rationale": "围绕低频标签“贬低竞品”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    },
+    {
+      "query_id": "LT-036",
+      "target_long_tail_label": "贬低竞品",
+      "source_test_frequency": 10,
+      "scene": "ST2_live_short_video",
+      "length_bucket": "short",
+      "query": "直播材料把同业产品描述为毫无价值，以此突出本产品优势。",
+      "overall_risk": "有风险",
+      "risk_labels": [
+        "贬低竞品",
+        "不当比较"
+      ],
+      "evidence": [
+        "直播材料把同业产品描述为毫无价值，以此突出本产品优势。"
+      ],
+      "rationale": "围绕低频标签“贬低竞品”构造的定向增强样本。",
+      "annotation_status": "synthetic_pending_human_review"
+    }
+  ]
+}

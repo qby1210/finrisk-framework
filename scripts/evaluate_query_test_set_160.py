@@ -121,8 +121,7 @@ async def evaluate_sample(
             "gold_risk": sample["overall_risk"],
             "predicted_risk": (
                 "有风险"
-                if result.risk_summary.overall_score
-                >= result.risk_summary.risk_display_threshold
+                if result.risk_summary.overall_score >= result.risk_summary.risk_display_threshold
                 else "无风险"
             ),
             "overall_score": result.risk_summary.overall_score,
@@ -135,6 +134,8 @@ async def evaluate_sample(
             "retrieval_sentences": result.risk_summary.retrieval_sentence_count,
             "top_case_ids": [case.case_id for case in result.risk_summary.top_matched_cases],
             "sentence_count": result.risk_summary.sentence_count,
+            "stage_timings_ms": result.stage_timings_ms,
+            "risk_stage_timings_ms": result.risk_summary.stage_timings_ms,
             "processing_seconds": round(perf_counter() - processing_started, 4),
             "queue_wait_seconds": round(processing_started - queued_at, 4),
             "total_seconds": round(perf_counter() - queued_at, 4),
@@ -151,9 +152,9 @@ async def evaluate_sample(
             "predicted_risk": None,
             "gold_labels": sample.get("risk_labels", []),
             "predicted_labels": [],
-            "processing_seconds": round(
-                perf_counter() - (processing_started or queued_at), 4
-            ),
+            "stage_timings_ms": {},
+            "risk_stage_timings_ms": {},
+            "processing_seconds": round(perf_counter() - (processing_started or queued_at), 4),
             "queue_wait_seconds": round((processing_started or queued_at) - queued_at, 4),
             "total_seconds": round(perf_counter() - queued_at, 4),
             "error": f"{type(error).__name__}: {error}",
@@ -221,6 +222,25 @@ def compute_metrics(rows: list[dict[str, object]], taxonomy: tuple[str, ...]) ->
     latencies = sorted(float(row["processing_seconds"]) for row in valid)
     queue_waits = [float(row["queue_wait_seconds"]) for row in valid]
     p95_index = max(0, math_ceil(0.95 * len(latencies)) - 1) if latencies else 0
+    stage_keys = (
+        "query_preparation",
+        "local_rules",
+        "llm_review",
+        "case_retrieval",
+        "aggregate",
+        "total",
+    )
+    mean_stage_ms: dict[str, float] = {}
+    for key in stage_keys:
+        values = []
+        for row in valid:
+            container_name = (
+                "stage_timings_ms" if key == "query_preparation" else "risk_stage_timings_ms"
+            )
+            container = dict(row.get(container_name) or {})
+            if key in container:
+                values.append(float(container[key]))
+        mean_stage_ms[key] = fmean(values) if values else 0.0
     return {
         "requested_samples": len(rows),
         "successful_samples": len(valid),
@@ -250,6 +270,7 @@ def compute_metrics(rows: list[dict[str, object]], taxonomy: tuple[str, ...]) ->
             "median_seconds": median(latencies) if latencies else 0.0,
             "p95_seconds": latencies[p95_index] if latencies else 0.0,
             "mean_queue_wait_seconds": fmean(queue_waits) if queue_waits else 0.0,
+            "mean_stage_ms": mean_stage_ms,
             "llm_used_samples": sum(bool(row.get("llm_used")) for row in valid),
             "retrieval_sentences": sum(int(row.get("retrieval_sentences") or 0) for row in valid),
         },
@@ -284,6 +305,15 @@ def render_markdown(report: dict[str, object]) -> str:
         (
             f"- 平均 / P95 延迟：{float(runtime['mean_seconds']):.2f}s / "
             f"{float(runtime['p95_seconds']):.2f}s"
+        ),
+        (
+            "- 平均阶段耗时：准备 {preparation:.0f}ms / 本地规则 {local:.0f}ms / "
+            "LLM {llm:.0f}ms / 检索 {retrieval:.0f}ms"
+        ).format(
+            preparation=float(dict(runtime["mean_stage_ms"])["query_preparation"]),
+            local=float(dict(runtime["mean_stage_ms"])["local_rules"]),
+            llm=float(dict(runtime["mean_stage_ms"])["llm_review"]),
+            retrieval=float(dict(runtime["mean_stage_ms"])["case_retrieval"]),
         ),
         f"- 索引预热：{float(report['index_build_seconds']):.2f}s",
         f"- 160条整批墙钟时间：{float(report['evaluation_wall_seconds']):.2f}s",
@@ -344,9 +374,7 @@ async def async_main(args: argparse.Namespace) -> int:
         }
 
     samples = [
-        sample
-        for sample in selected_samples
-        if str(sample["query_id"]) not in preserved_rows
+        sample for sample in selected_samples if str(sample["query_id"]) not in preserved_rows
     ]
     if args.resume:
         print(f"断点续跑：保留 {len(preserved_rows)} 条成功结果，重试 {len(samples)} 条")
@@ -370,16 +398,14 @@ async def async_main(args: argparse.Namespace) -> int:
         else 0.0
     )
     report = {
-        "schema_version": "query_test_set_evaluation_v1",
+        "schema_version": "query_test_set_evaluation_v2",
         "mode": args.mode,
         "dataset": dataset_path,
         "dataset_schema_version": dataset_meta.get("schema_version"),
         "index_build_seconds": round(index_seconds, 4),
         "evaluation_wall_seconds": round(previous_wall_seconds + evaluation_wall_seconds, 4),
         "resume_count": (
-            int(str(previous_report.get("resume_count") or 0)) + 1
-            if previous_report
-            else 0
+            int(str(previous_report.get("resume_count") or 0)) + 1 if previous_report else 0
         ),
         "metrics": compute_metrics(rows, taxonomy),
         "rows": rows,
@@ -390,6 +416,8 @@ async def async_main(args: argparse.Namespace) -> int:
     print(f"JSON: {json_path}")
     print(f"Markdown: {markdown_path}")
     return 0 if not dict(report["metrics"])["error_count"] else 1
+
+
 def main() -> int:
     return asyncio.run(async_main(parse_args()))
 

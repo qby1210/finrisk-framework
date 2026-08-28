@@ -11,6 +11,7 @@ from domain.file_models import FileExtractionResult, PageContent, TextBlock
 from domain.query_models import (
     QueryExtractionSummary,
     QueryProcessingResult,
+    QueryScene,
     QuerySourceRegion,
     RiskQuerySentence,
     SentenceSourceMapping,
@@ -59,6 +60,7 @@ async def prepare_query(
     input_type: QueryInputType,
     extraction: FileExtractionResult | None = None,
     metadata: Mapping[str, object] | None = None,
+    scene_override: QueryScene | None = None,
 ) -> QueryProcessingResult:
     """整份材料分类后，生成逐句 Risk 输入和原文定位表。"""
 
@@ -70,7 +72,11 @@ async def prepare_query(
         if extraction
         else None
     )
-    classification = await classifier.classify(text, classification_context)
+    classification = await classifier.classify(
+        text,
+        classification_context,
+        scene_override=scene_override,
+    )
     query_id = _query_id(text, extraction.document_id if extraction else None)
     spans = split_sentences(text)
     sentences: list[RiskQuerySentence] = []

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from datetime import date
 from pathlib import Path
 
 from domain.common import FilePurpose
@@ -85,6 +86,11 @@ class CaseManagementService:
         risk_tag: str | None,
         status: str | None,
         origin: str | None,
+        regulator: str | None = None,
+        party_name: str | None = None,
+        institution_type: str | None = None,
+        penalty_date_from: date | None = None,
+        penalty_date_to: date | None = None,
     ) -> CaseListPage:
         return self.repository.list_cases(
             page=page,
@@ -93,6 +99,11 @@ class CaseManagementService:
             risk_tag=risk_tag,
             status=status,
             origin=origin,
+            regulator=regulator,
+            party_name=party_name,
+            institution_type=institution_type,
+            penalty_date_from=penalty_date_from,
+            penalty_date_to=penalty_date_to,
         )
 
     def get_case(self, case_id: str) -> CaseDetail:

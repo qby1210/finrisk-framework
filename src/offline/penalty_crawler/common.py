@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 from html import unescape
 from pathlib import Path
+from typing import Any, cast
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -38,7 +39,7 @@ def fetch(url: str, *, delay: float = DEFAULT_DELAY, timeout: int = DEFAULT_TIME
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.read()
+                return cast(bytes, response.read())
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             last_error = exc
             time.sleep(delay * (attempt + 1) * 2)
@@ -55,14 +56,19 @@ def decode_text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def load_json(url: str, *, delay: float = DEFAULT_DELAY) -> dict:
-    return json.loads(decode_text(fetch(url, delay=delay)))
+def load_json(url: str, *, delay: float = DEFAULT_DELAY) -> dict[str, Any]:
+    return cast(dict[str, Any], json.loads(decode_text(fetch(url, delay=delay))))
 
 
-def load_json_get(url: str, params: dict, *, delay: float = DEFAULT_DELAY) -> dict:
+def load_json_get(
+    url: str,
+    params: dict[str, object],
+    *,
+    delay: float = DEFAULT_DELAY,
+) -> dict[str, Any]:
     """GET + query string 取 JSON（NFRA 动态接口回退用）。"""
     full_url = url + "?" + urllib.parse.urlencode(params)
-    return json.loads(decode_text(fetch(full_url, delay=delay)))
+    return cast(dict[str, Any], json.loads(decode_text(fetch(full_url, delay=delay))))
 
 
 _TAG_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -97,7 +103,7 @@ def sha1_text(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
-def append_jsonl(path: Path, row: dict) -> None:
+def append_jsonl(path: Path, row: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")

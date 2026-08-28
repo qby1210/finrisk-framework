@@ -89,6 +89,11 @@ class CaseRepository:
         risk_tag: str | None = None,
         status: str | None = None,
         origin: str | None = None,
+        regulator: str | None = None,
+        party_name: str | None = None,
+        institution_type: str | None = None,
+        penalty_date_from: date | None = None,
+        penalty_date_to: date | None = None,
     ) -> CaseListPage:
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("分页参数不合法")
@@ -104,6 +109,41 @@ class CaseRepository:
             records = [record for record in records if record.get("retrieval_status") == status]
         if origin:
             records = [record for record in records if record.get("case_origin") == origin]
+        if regulator:
+            needle = regulator.strip().casefold()
+            records = [
+                record
+                for record in records
+                if needle in str(record.get("regulator") or "").casefold()
+            ]
+        if party_name:
+            needle = party_name.strip().casefold()
+            records = [
+                record
+                for record in records
+                if needle in str(record.get("party_name") or "").casefold()
+            ]
+        if institution_type:
+            needle = institution_type.strip().casefold()
+            records = [
+                record
+                for record in records
+                if needle in str(record.get("institution_type") or "").casefold()
+            ]
+        if penalty_date_from:
+            records = [
+                record
+                for record in records
+                if (value := _as_date(record.get("penalty_date"))) is not None
+                and value >= penalty_date_from
+            ]
+        if penalty_date_to:
+            records = [
+                record
+                for record in records
+                if (value := _as_date(record.get("penalty_date"))) is not None
+                and value <= penalty_date_to
+            ]
         records.sort(key=_case_sort_key)
         total = len(records)
         start = (page - 1) * page_size
@@ -291,6 +331,8 @@ class CaseRepository:
             penalty_content=_optional_string(record.get("penalty_content")),
             regulator=_optional_string(record.get("regulator")),
             penalty_date=_as_date(record.get("penalty_date")),
+            institution_type=_optional_string(record.get("institution_type")),
+            source_url=_optional_string(record.get("source_url")),
             risk_tags=[str(value) for value in _as_list(record.get("risk_tags"))],
             risk_domains=[str(value) for value in _as_list(record.get("risk_domains"))],
             case_origin=str(record.get("case_origin") or "unknown"),
@@ -306,12 +348,11 @@ class CaseRepository:
     ) -> CaseDetail:
         return CaseDetail(
             **self._to_summary(record).model_dump(),
-            institution_type=_optional_string(record.get("institution_type")),
             case_summary=_optional_string(record.get("case_summary")),
             related_parties=_as_dict_list(record.get("related_parties")),
+            entity_relations=_as_dict_list(record.get("entity_relations")),
             legal_basis_refs=_as_dict_list(record.get("legal_basis_refs")),
             source_file=_optional_string(record.get("source_file")),
-            source_url=_optional_string(record.get("source_url")),
             source_sha256=_optional_string(record.get("source_sha256")),
             quality_flags=[str(value) for value in _as_list(record.get("quality_flags"))],
             data_version=str(record.get("data_version") or "case_kb_incremental_v1"),
@@ -397,7 +438,7 @@ def _read_manifest_meta(path: Path) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
     return {
-        key: text
+        key: str(text)
         for key in ("data_version", "latest_crawl_at", "latest_penalty_date")
         if (text := value.get(key)) not in (None, "")
     }

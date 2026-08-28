@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 from collections import defaultdict
 from dataclasses import dataclass
+from time import perf_counter
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -89,6 +91,8 @@ class RiskAssessmentPipeline:
         self.thresholder = RiskThresholder()
 
     async def analyze(self, query: QueryProcessingResult) -> QueryAnalysisResult:
+        analysis_started = perf_counter()
+        local_started = perf_counter()
         mappings = {mapping.sentence_id: mapping for mapping in query.source_mappings}
         preliminary = tuple(
             _PreliminaryAssessment(
@@ -98,13 +102,13 @@ class RiskAssessmentPipeline:
             )
             for sentence in query.sentences
         )
+        local_rules_ms = (perf_counter() - local_started) * 1000
         review_ids = {
-            item.sentence.sentence_id
-            for item in preliminary
-            if not self._local_direct(item.rules)
+            item.sentence.sentence_id for item in preliminary if not self._local_direct(item.rules)
         }
         warnings: list[str] = []
         llm_outputs: dict[str, _LLMItem] = {}
+        llm_started = perf_counter()
         if self.llm_client is not None and review_ids:
             llm_outputs, llm_warnings = await self._llm_assess(preliminary, review_ids)
             warnings.extend(llm_warnings)
@@ -113,16 +117,35 @@ class RiskAssessmentPipeline:
                 f"未配置大模型，{len(review_ids)}个中低置信句子已使用本地两阶段结果降级"
             )
 
+        llm_review_ms = (perf_counter() - llm_started) * 1000
+        finalize_started = perf_counter()
         assessments = [
-            self._finalize(item, llm_outputs.get(item.sentence.sentence_id))
-            for item in preliminary
+            self._finalize(item, llm_outputs.get(item.sentence.sentence_id)) for item in preliminary
         ]
+        assessments = self._apply_document_channel_labels(query, assessments)
+        finalize_ms = (perf_counter() - finalize_started) * 1000
+        retrieval_started = perf_counter()
         assessments = await self._retrieve_eligible(assessments)
+        retrieval_ms = (perf_counter() - retrieval_started) * 1000
+        aggregate_started = perf_counter()
         summary = self._summarize(
             assessments,
             llm_outputs=llm_outputs,
             review_ids=review_ids,
             warnings=warnings,
+        )
+        aggregate_ms = (perf_counter() - aggregate_started) * 1000
+        summary = summary.model_copy(
+            update={
+                "stage_timings_ms": {
+                    "local_rules": round(local_rules_ms, 3),
+                    "llm_review": round(llm_review_ms, 3),
+                    "finalize": round(finalize_ms, 3),
+                    "case_retrieval": round(retrieval_ms, 3),
+                    "aggregate": round(aggregate_ms, 3),
+                    "total": round((perf_counter() - analysis_started) * 1000, 3),
+                }
+            }
         )
         return QueryAnalysisResult(
             **query.model_dump(exclude={"schema_version"}),
@@ -183,8 +206,10 @@ class RiskAssessmentPipeline:
         for item in preliminary:
             if item.sentence.sentence_id not in review_ids:
                 continue
-            item_chars = len(item.sentence.text) + len(item.mapping.context_before) + len(
-                item.mapping.context_after
+            item_chars = (
+                len(item.sentence.text)
+                + len(item.mapping.context_before)
+                + len(item.mapping.context_after)
             )
             if current and (
                 len(current) >= self.llm_batch_items
@@ -299,6 +324,52 @@ class RiskAssessmentPipeline:
             evidence=evidence,
         )
 
+    def _apply_document_channel_labels(
+        self,
+        query: QueryProcessingResult,
+        assessments: list[SentenceRiskAssessment],
+    ) -> list[SentenceRiskAssessment]:
+        channel_labels = _document_channel_labels(query.classification.scene, query.source_text)
+        document_content_labels = _explicit_content_labels(query.source_text)
+        risky_items = [
+            item for item in assessments if item.risk_score >= self.risk_display_threshold
+        ]
+        document_label_target_id = (
+            max(risky_items, key=lambda item: item.risk_score).sentence_id
+            if document_content_labels and risky_items
+            else None
+        )
+        results: list[SentenceRiskAssessment] = []
+        for item in assessments:
+            if item.risk_score < self.risk_display_threshold:
+                results.append(item)
+                continue
+            content_labels = _explicit_content_labels(item.text)
+            if item.sentence_id == document_label_target_id:
+                content_labels.extend(document_content_labels)
+            if (
+                query.classification.scene
+                is QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK
+                and _looks_like_noncompliant_training_guidance(item.text)
+            ):
+                content_labels.append("培训材料违规")
+            labels = list(dict.fromkeys([*channel_labels, *content_labels]))
+            if not labels:
+                results.append(item)
+                continue
+            merged_labels = list(dict.fromkeys([*item.risk_labels, *labels]))[:10]
+            evidence = [
+                *item.evidence,
+                RiskEvidence(
+                    source="document_context",
+                    description=f"材料载体或明确措辞补充标签：{'、'.join(labels)}",
+                ),
+            ]
+            results.append(
+                item.model_copy(update={"risk_labels": merged_labels, "evidence": evidence})
+            )
+        return results
+
     def _resolve_labels(
         self,
         item: _PreliminaryAssessment,
@@ -351,9 +422,7 @@ class RiskAssessmentPipeline:
                 evidence.append(
                     RiskEvidence(
                         source="hybrid_case_retrieval",
-                        description=(
-                            f"标签对齐案例 {top.case_id}，混合重排分 {top.score:.2f}"
-                        ),
+                        description=(f"标签对齐案例 {top.case_id}，混合重排分 {top.score:.2f}"),
                     )
                 )
             results.append(
@@ -455,6 +524,70 @@ def _fallback_reasoning(rules: RuleDetectionResult, level: RiskLevel) -> str:
         return "本地两阶段规则未发现明确风险信号；建议在完整模式下进行语义复核。"
     return "本地规则发现弱风险信号，当前为未取得大模型结果时的降级判断。"
 
+
+def _document_channel_labels(scene: QueryScene, text: str) -> list[str]:
+    if scene is QueryScene.ST4_MEETING_MATERIAL:
+        return ["产品说明会违规"]
+    if scene is not QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK:
+        return []
+    marker_match = re.match(r"^【材料载体：([^】]+)】\s*", text)
+    marker = marker_match.group(1) if marker_match else ""
+    if marker == "内部销售培训材料":
+        return ["培训材料违规"]
+    if marker == "电销话术材料":
+        return ["电销违规"]
+    if marker == "客户回访材料":
+        return ["回访违规"]
+    body = text[marker_match.end() :] if marker_match else text
+    labels: list[str] = []
+    if any(keyword in body for keyword in ("培训材料", "培训课件", "内部培训", "讲师备注")):
+        labels.append("培训材料违规")
+
+    if any(keyword in body for keyword in ("电销", "电话销售", "坐席", "致电", "呼叫")):
+        labels.append("电销违规")
+    if "回访" in body:
+        labels.append("回访违规")
+    return labels
+
+
+def _looks_like_noncompliant_training_guidance(text: str) -> bool:
+    """识别面向销售人员的规避式操作指引，而非普通通话或回访事实。"""
+    if (
+        "回访" in text
+        and "录音" in text
+        and not any(keyword in text for keyword in ("礼品", "赠送", "销售承诺"))
+    ):
+        return False
+    patterns = (
+        r"(?:话术|口径).{0,20}(?:不要|别|改成|统一|只说|就说)",
+        r"(?:业务员|坐席|主管|团队|伙伴).{0,42}(?:垫付|垫一下|拆成|统一写|只保留|不要记录)",
+        r"(?:职业|健康|住院|病史).{0,28}(?:先选|选择为否|未发现异常|按内勤录入)",
+        r"(?:返现|返佣|佣金|保费).{0,28}(?:别说|不要写|语音回答|报销|补助)",
+        r"(?:条款|现金价值表|演示利益|保证利益).{0,28}(?:先不|不必|只发|只读|后再|就说)",
+        r"(?:名额|验证码|手机确认).{0,28}(?:先完成|先报|当天完成|自动释放)",
+        r"(?:别说|不要说).{0,8}(?:返现|返佣|收益率|百分之)",
+        r"(?:不必解释|不要说明).{0,16}(?:演示利益|保证利益|现金价值)",
+        r"(?:检查|质检).{0,12}(?:抓到|发现).{0,16}(?:改成|换成|不要再说)?",
+        r"主管.{0,160}(?:暗示|统一口径|不必解释|不要说明)",
+        r"先从.{0,48}切入.{0,24}(?:暗示|不必解释|不要说明)",
+        r"(?:礼品|赠送利益|销售承诺).{0,36}(?:不提交|暂停录音|重新回访|只上传)",
+    )
+    return any(re.search(pattern, text, re.DOTALL) for pattern in patterns)
+
+
+def _explicit_content_labels(text: str) -> list[str]:
+    """从明确措辞补充容易漏检的事实标签，不改变风险分值。"""
+    fabricated_yield_patterns = (
+        r"(?:收益|年化|利率).{0,12}\d+(?:\.\d+)?\s*%.{0,16}(?:写进|写入|载入).{0,6}合同",
+        r"(?:过去|历史).{0,24}(?:收益|利率).{0,12}\d+(?:\.\d+)?\s*%.{0,32}未来.{0,16}(?:保持|维持|达到)",
+        r"(?:补贴|礼金|赠品|赠送利益).{0,20}(?:当成|作为|视为).{0,10}(?:产品)?收益",
+        r"(?:加息|收益).{0,8}名额.{0,64}(?:不存在|虚构|编造)",
+        r"(?:复利|收益|年化).{0,12}(?:预计|预测|测算)?(?:可达|达到)\s*\d+(?:\.\d+)?\s*%",
+        r"\d+(?:\.\d+)?\s*%.{0,24}(?:手工|自行).{0,10}(?:测算|换算).{0,40}(?:不是|并非).{0,24}(?:历史|保证|合同)",
+    )
+    if any(re.search(pattern, text, re.DOTALL) for pattern in fabricated_yield_patterns):
+        return ["虚构收益率"]
+    return []
 
 def _scene_channel_labels(sentence: RiskQuerySentence, score: float) -> list[str]:
     if score < 0.40:

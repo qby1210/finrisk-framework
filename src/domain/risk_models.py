@@ -77,6 +77,7 @@ class QueryRiskSummary(ContractModel):
     local_direct_sentence_count: int = Field(default=0, ge=0)
     retrieval_sentence_count: int = Field(default=0, ge=0)
     warnings: list[str] = Field(default_factory=list)
+    stage_timings_ms: dict[str, float] = Field(default_factory=dict)
 
 
 class QueryAnalysisResult(QueryProcessingResult):
@@ -85,6 +86,7 @@ class QueryAnalysisResult(QueryProcessingResult):
     schema_version: str = "4.0"
     risk_summary: QueryRiskSummary
     risk_assessments: list[SentenceRiskAssessment] = Field(min_length=1)
+    stage_timings_ms: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_risk_assessments(self) -> QueryAnalysisResult:

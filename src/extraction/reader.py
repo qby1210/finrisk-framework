@@ -19,10 +19,11 @@ from extraction.errors import UnsupportedFileTypeError
 from extraction.image_reader import read_image
 from extraction.ocr_reader import OcrEngine, RapidOcrReader
 from extraction.pdf_reader import read_pdf
+from extraction.spreadsheet_reader import read_spreadsheet
 from extraction.text_reader import read_text
 from extraction.types import DocumentDraft
 
-EXTRACTOR_VERSION = "0.1.0"
+EXTRACTOR_VERSION = "0.2.0"
 
 _MEDIA_TYPES = {
     ".pdf": "application/pdf",
@@ -36,10 +37,13 @@ _MEDIA_TYPES = {
     ".txt": "text/plain",
     ".md": "text/markdown",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".csv": "text/csv",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 _TEXT_EXTENSIONS = {".txt", ".md"}
+_SPREADSHEET_EXTENSIONS = {".csv", ".xlsx"}
 
 
 class FileExtractor:
@@ -130,6 +134,8 @@ class FileExtractor:
             return read_text(path)
         if extension == ".docx":
             return read_docx(path)
+        if extension in _SPREADSHEET_EXTENSIONS:
+            return read_spreadsheet(path)
         raise UnsupportedFileTypeError(f"暂不支持文件格式：{extension}")
 
 
@@ -174,6 +180,8 @@ def _document_method(
         return next(iter(methods))
     if extension == ".docx":
         return ExtractionMethod.DOCX
+    if extension in _SPREADSHEET_EXTENSIONS:
+        return ExtractionMethod.SPREADSHEET
     if extension in _TEXT_EXTENSIONS:
         return ExtractionMethod.PLAIN_TEXT
     if extension in _IMAGE_EXTENSIONS:

@@ -1,17 +1,27 @@
 # FinRisk 保险营销合规工作台
 
-FinRisk 是本次金融科技创新大赛的本地 Web 系统，现已打通三项核心功能：
+FinRisk 是面向保险监管处罚材料与营销材料的本地 Web 系统，覆盖比赛要求的五条主线：
 
-- 案例录入：上传处罚 PDF/图片/TXT/DOCX，抽取并追加到统一案例库；
-- 案例管理：分页检索、查看原文证据、停用和恢复已有案例；
-- 风险查询：Query 六类场景分类、逐句风险判断、解释和相似案例匹配。
+- 处罚材料解析：PDF、扫描图片、RapidOCR、DOCX、TXT、Markdown、CSV、XLSX、表格与跨页表格；
+- 案例结构化：主体、监管机构、机构类型、相关人员、处罚事实、标签、字段置信度与原文证据；
+- 相似案例检索：BM25 + 本地 TF-IDF 向量 + RRF + 轻量重排和组合筛选；
+- 材料合规审查：六场景路由、逐句风险判断、DeepSeek 复核、案例佐证和人工复核留痕；
+- 样本与评测：160 条人工审核测试基准、300 条开发集、36 条长尾增强集和统一评测脚本。
 
-系统整合了队员提供的案例构建包、7,628 条案例数据、风险判断代码和 Query
-分类/切分框架。运行时没有重复的案例库、文件提取器或 LLM 客户端。
+系统使用一套包含 7,628 条案例的知识库，不重复维护案例库、文件提取器或 LLM 客户端。
+当前案例数据由项目组依据监管材料构建，不代表监管机构逐条确认；正式结论必须回看原文证据并经人工复核。
 
-> 数据性质：当前案例库由队员根据原始监管案例 PDF 生成，不是赛事官方下发或经监管机构
-> 逐条确认的权威数据库。清单中的 `official_gold` 是旧构建流程的内部质量分层名称，不代表
-> “官方认证”。正式结论仍应回看原始 PDF 和证据片段。
+## 当前状态
+
+| 项目 | 状态 |
+| --- | --- |
+| Web/API、案例录入、案例管理、风险查询 | 已完成 |
+| 用户指定 ST1–ST6 场景、无 LLM 本地回退 | 已完成 |
+| 人工复核界面、JSONL 审核留痕、HTML 报告导出 | 已完成 |
+| PDF 原生表格、跨页合并、CSV/XLSX 表格读取 | 已完成 |
+| 主体关系、字段置信度、原文来源 | 已完成 |
+| 独立人工检索评测集及 Recall@K/MRR/nDCG@K | 等待项目组人工金标准 |
+| 专用手写识别模型 | 未实现，进入人工复核 |
 
 ## 快速启动
 
@@ -20,7 +30,7 @@ FinRisk 是本次金融科技创新大赛的本地 Web 系统，现已打通三�
 ```powershell
 uv sync --all-groups
 Copy-Item .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY
+# 编辑 .env，填写 DEEPSEEK_API_KEY；不填写也可使用本地回退
 uv run python scripts/run_web.py
 ```
 
@@ -28,109 +38,143 @@ uv run python scripts/run_web.py
 - OpenAPI：<http://127.0.0.1:8000/docs>
 - 健康检查：<http://127.0.0.1:8000/api/health>
 
-`.env` 已被 Git 忽略。不要把密钥提交、打印到日志或写进前端。未配置 DeepSeek 时，
-明确的 Query 可使用规则与案例检索降级；需要大模型复核的模糊场景会返回明确错误。
+`.env` 已被 Git 忽略。禁止将 API Key 写入前端、日志或提交记录。DeepSeek 不可用时，
+系统会返回本地规则结果并继续案例检索，不会中断请求。
 
-## 一套案例数据
+## Web 使用
 
-现成数据直接放在：
+### 风险查询与人工复核
+
+1. 进入“风险查询”，粘贴文本或上传文件；
+2. 选择“自动判断”或手动指定 ST1–ST6，手动指定可跳过场景模型调用；
+3. 点击分析，查看原文高亮、逐句风险、标签、理由、耗时和相似处罚案例；
+4. 分析完成后，在结果底部找到“人工复核留痕”面板；
+5. 选择确认、人工修正或退回，填写审核人、修正场景、修正标签与意见后保存。
+
+审核记录追加到 `data/processed/reviews/query_reviews.jsonl`，包含 Query ID、输入哈希、
+原结果、修正内容、审核人和审核时间，不覆盖历史记录。页面还可导出独立 HTML 审查报告，
+再由浏览器打印为 PDF。
+
+### 案例录入与管理
+
+- “案例录入”支持 PDF、图片、TXT、Markdown、DOCX、CSV、XLSX；
+- 新案例写入统一 `cases / case_chunks / case_expansions` 三表；
+- “案例管理”支持搜索、筛选、查看证据、停用与恢复；
+- 停用只修改 `retrieval_status`，不会删除原始文件和结构化记录。
+
+## 160 条正式评测
+
+评测日期：2026-08-28。两种模式均为 160/160 成功、0 错误。
+
+| 模式 | 场景准确率 | 二分类 P / R / F1 | 多标签 Micro / Macro-F1 | 平均 / P95 |
+| --- | ---: | ---: | ---: | ---: |
+| DeepSeek 完整流程 | 88.75% | 96.30% / 81.89% / 88.51% | 56.04% / 56.71% | 4.61s / 12.45s |
+| 本地回退 | 79.38% | 84.62% / 43.31% / 57.29% | 28.14% / 21.47% | 0.20s / 1.54s |
+
+完整模式平均阶段耗时：Query 准备 665ms、本地规则 1ms、LLM 3608ms、案例检索 333ms。
+主要瓶颈是 LLM，不是相似案例查询。
+
+正式报告：
+
+- `outputs/query_test_set_160/evaluation_full.md`
+- `outputs/query_test_set_160/evaluation_local.md`
+
+## Query 数据资产
+
+| 文件 | 数量 | 用途 |
+| --- | ---: | --- |
+| `data/raw/query/query_test_set_160.json` | 160 | 六场景最终人工审核测试基准 |
+| `data/raw/query/query_dev_set.json` | 300 | 开发调试，来自既有训练 Query 规范化 |
+| `data/raw/query/query_long_tail_enhancement.json` | 36 | 九类低频标签增强，待逐条人工复核 |
+| `data/raw/query/retrieval_train_queries.jsonl` | 300 | 开发集构建源和检索弱监督来源 |
+
+重新构建开发集与长尾集：
+
+```powershell
+uv run python scripts/build_query_datasets.py
+```
+
+160 条测试集是唯一正式 Query 基准。旧 60 条数据和报告已经移除。
+
+## 案例知识库
 
 ```text
 data/processed/knowledge/case_kb_v2_1_2026-08-23/
 ├─ data/
-│  ├─ cases.jsonl              # 7,628 条案例主记录
-│  ├─ case_chunks.jsonl        # 31,041 条证据/事实等切片
-│  ├─ case_expansions.jsonl    # 9,439 条检索扩展
+│  ├─ cases.jsonl              # 7,628 条案例
+│  ├─ case_chunks.jsonl        # 可追溯事实/证据切片
+│  ├─ case_expansions.jsonl    # 检索扩展表达
 │  ├─ review_queue.jsonl
 │  └─ excluded_records.jsonl
-├─ dictionary/                 # 风险标签和归口映射
-├─ reports/                    # 原构建包质量报告
+├─ dictionary/                 # 27 类风险标签及映射
+├─ reports/
 └─ manifest.json               # 版本、行数和 SHA-256
 ```
 
-系统启动不会重新生成这些数据。Web 新增案例走相同概念流程，然后追加到上述同一组
-`cases / case_chunks / case_expansions` 文件；`case_origin=web_ingestion` 仅用于追溯来源，
-不表示另一套数据库。新增原始文件保存在 `data/raw/cases/uploads/`。
+系统启动不会重建主库。风险关键词唯一资产位于
+`data/risk/keyword_db/risk_keyword_db.json`。
 
-停用案例只把 `retrieval_status` 改为 `inactive`，不会删除结构化记录、证据或原始文件；
-恢复后重新参与检索。三表追加带失败回滚，避免只写入部分文件。
-
-风险关键词唯一资产位于 `data/risk/keyword_db/risk_keyword_db.json`。原始压缩包保留作
-审计输入，但系统运行不依赖压缩包。
-
-## 官网案例定期更新
-
-金监总局处罚栏目（总局/省局/分局）的增量案例由脚本采集并走统一入库链：
+金监总局处罚栏目增量更新：
 
 ```powershell
-uv run python scripts/update_cases_from_web.py            # 日常更新（采集→筛选→入库）
-uv run python scripts/update_cases_from_web.py --dry-run  # 只采集汇报，不调模型
+uv run python scripts/update_cases_from_web.py
+uv run python scripts/update_cases_from_web.py --dry-run
 ```
 
-按文书内容三级去重（采集 state、台账 sha1、案例库 case_id 哈希），可每天重复运行，
-无新案时零模型调用；银行当事人案件按口径不入库。`data/raw/cases/crawl/` 是采集
-状态目录，删除会导致重复入库。详见 `src/offline/penalty_crawler/README.md`。
+采集使用 state、台账 SHA-1、案例 ID 三级去重。`data/raw/cases/crawl/` 是增量状态目录，
+不可作为缓存删除，否则可能造成重复入库。
 
-## 风险判断流程
+## 分析与检索流程
 
 ```text
-Query 文本/文件
-  → 多模态内容抽取（原生文本/PDF/RapidOCR/坐标/哈希/置信度）
-  → 六类场景分类（规则高置信直出，DeepSeek 复核模糊场景）
-  → 可逆偏移切句（全文偏移/页码/坐标/前后文）
-  → 两阶段本地初判（强组合规则 + 场景加权关键词）
-  → 中低置信句动态批量 DeepSeek 复核（不传入案例）
-  → 达检索门槛后按风险标签约束案例候选
-  → BM25 + 本地TF-IDF向量 + RRF + 轻量重排
-  → 逐句结果与文档级风险/标签/Top案例聚合
+文本/文件
+  → 原生解析或OCR、表格还原、坐标/页码/哈希/置信度
+  → 用户指定或自动六场景分类
+  → 可逆切句与原文映射
+  → 两阶段本地风险初判
+  → 中低置信句批量DeepSeek复核
+  → 风险分、等级和27类标签
+  → 达门槛后按标签和元数据检索案例
+  → BM25 + TF-IDF向量 + RRF + 轻量重排
+  → 逐句结果、文档结论、Top案例和复核建议
 ```
 
-案例相似度是佐证，不参与风险分计算，也不会进入大模型提示词。只有最终句分达到可配置
-检索门槛且当前句已有风险标签时才检索；返回案例必须至少一个标签与句子标签相交。
+案例相似度只作佐证，不参与当前材料风险分，也不会被放入 LLM 提示词。检索支持自然语言、
+风险标签、监管机构、处罚主体、机构类型和处罚日期范围组合过滤，并返回中文命中理由。
 
-当前统一 LLM 模块在 `src/llm/`，默认使用：
-
-- Base URL：`https://api.deepseek.com`
-- Model：`deepseek-v4-flash`
-- API：OpenAI-compatible Chat Completions
-- JSON 输出：`response_format=json_object`
-- Thinking：默认关闭
-
-## 项目结构
-
-```text
-src/
-├─ api/             # FastAPI 路由、依赖装配、静态站点
-├─ application/     # Query 分析、案例管理、案例检索用例
-├─ domain/          # 唯一跨模块 Pydantic 契约
-├─ extraction/      # PDF/图片/TXT/Markdown/DOCX 共用提取器
-├─ llm/             # 唯一 DeepSeek/OpenAI-compatible 客户端
-├─ offline/         # 新案例增量结构化和三表产物构建
-├─ query/           # Query 场景分类、切句和原文映射
-├─ retrieval/       # 共用倒排表的 BM25 与本地 TF-IDF 向量召回
-├─ risk/            # 规则检测、融合校准、风险流水线
-├─ storage/         # 统一案例库持久化与 manifest 刷新
-└─ web/static/      # 三功能 Web UI
-```
-
-当前向量通道使用中文 unigram/bigram TF-IDF 余弦相似度，并利用案例扩展表达覆盖同义
-说法；它与 BM25 共用倒排表，无需下载模型或 CUDA，适合比赛机器离线演示。
+当前向量通道是中文 unigram/bigram TF-IDF 余弦相似度，无需下载权重或 CUDA，适合离线演示。
+独立检索金标准完成前，不使用训练 Query 的 `relevant_cases` 冒充最终测试结果。
 
 ## 主要 API
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| GET | `/api/health` | 数据和 LLM 状态 |
-| POST | `/api/query/analyze/text` | 文本 Query 完整风险分析 |
-| POST | `/api/query/analyze/file` | 文件 Query 完整风险分析 |
-| GET | `/api/cases` | 案例分页与筛选 |
-| GET | `/api/cases/{case_id}` | 案例详情和证据切片 |
-| POST | `/api/cases/upload` | 新案例增量入库 |
+| GET | `/api/health` | 数据版本和 LLM 状态 |
+| POST | `/api/query/analyze/text` | 文本完整风险分析 |
+| POST | `/api/query/analyze/file` | 文件完整风险分析 |
+| POST | `/api/query/reviews` | 保存人工复核留痕 |
+| GET | `/api/knowledge/search` | Top-K 混合案例检索 |
+| GET | `/api/cases` | 案例分页与组合筛选 |
+| GET | `/api/cases/{case_id}` | 案例详情、主体关系和证据 |
+| POST | `/api/cases/upload` | 新处罚材料入库 |
 | PATCH | `/api/cases/{case_id}/status` | 停用或恢复案例 |
-| GET | `/api/knowledge/search` | 直接检索相似案例 |
 
-详细字段见 [docs/data_contracts.md](docs/data_contracts.md)，流程见
-[docs/architecture.md](docs/architecture.md) 和 [docs/query_pipeline.md](docs/query_pipeline.md)。
+## 项目结构
+
+```text
+src/
+├─ api/             # FastAPI 路由与依赖装配
+├─ application/     # Query、案例、检索、复核用例
+├─ domain/          # 唯一跨模块 Pydantic 契约
+├─ extraction/      # 文件、OCR、表格和位置提取
+├─ llm/             # 共享 DeepSeek/OpenAI-compatible 客户端
+├─ offline/         # 案例结构化、官网增量采集
+├─ query/           # 场景分类、切句、原文映射
+├─ retrieval/       # BM25 与本地向量索引
+├─ risk/            # 规则、校准、LLM复核、检索门控
+├─ storage/         # 统一案例库持久化
+└─ web/static/      # 红、白、灰、蓝比赛演示UI
+```
 
 ## 验证
 
@@ -139,16 +183,36 @@ uv run ruff check .
 uv run mypy src
 uv run pytest -q
 node --check src/web/static/app.js
-uv run python scripts/evaluate_query_test_set_160.py --mode full
+
+uv run python scripts/evaluate_query_test_set_160.py --mode local
+uv run python scripts/evaluate_query_test_set_160.py --mode full --concurrency 6
 ```
 
-真实样本测试不会写主库：处罚 PDF 只构建内存三表产物；小红书文案测试显式禁用 LLM，
-避免把用户提供的数据外发。联调记录见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。
+完整模式会调用 DeepSeek API。测试中的真实营销文案显式禁用 LLM，避免把用户数据外发。
+
+## 文档
+
+- [比赛任务交付映射](docs/competition_delivery.md)
+- [系统架构](docs/architecture.md)
+- [Query处理流水线](docs/query_pipeline.md)
+- [数据与API契约](docs/data_contracts.md)
+- [标注规范](docs/annotation_guideline.md)
+- [数据集说明](docs/dataset_card.md)
+- [变更与验证日志](docs/CHANGELOG.md)
+- [团队协作约定](docs/collaboration.md)
+
+## 已知限制
+
+- RapidOCR适合清晰印刷体和常见扫描件，复杂手写材料需要人工复核；
+- 保险案例预筛与主体关系抽取属于可解释轻量实现，不是独立训练的NER/关系模型；
+- 本地回退速度快但召回低于完整模式；
+- 长尾增强集在人工确认前不能作为最终金标准；
+- 检索 Recall@K、MRR、nDCG@K 等待独立人工相关性集合。
 
 ## 维护约定
 
-- 算法放在对应业务模块，脚本只做启动；
-- 跨模块字段只放 `src/domain`，不重复定义同义模型；
-- 所有业务路径从 `AppSettings` 获取，不写开发者绝对路径；
-- 原始文档不可覆盖，模型抽取字段必须能回到原文或标记为低证据；
-- 修改风险阈值、标签体系或数据 schema 时，同步测试和文档。
+- 算法放在业务模块，脚本只负责启动与离线编排；
+- 跨模块字段只放 `src/domain`，不建立第二套案例库或 LLM 客户端；
+- 路径统一从 `AppSettings` 获取，不写个人绝对路径；
+- 原始材料不可覆盖，抽取字段必须能回到原文或明确标记低证据；
+- 修改阈值、标签、schema或数据版本时，同步更新测试、报告和文档。

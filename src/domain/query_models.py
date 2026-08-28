@@ -24,7 +24,9 @@ class QueryClassificationMethod(StrEnum):
     """文件级场景分类的产生方式。"""
 
     RULE = "rule"
+    RULE_FALLBACK = "rule_fallback"
     LLM = "llm"
+    USER = "user"
 
 
 class SceneRuleCandidate(ContractModel):

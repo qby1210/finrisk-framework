@@ -9,6 +9,7 @@ import pymupdf
 from PIL import Image
 
 from domain.common import ExtractionMethod
+from domain.file_models import ExtractedTable
 from extraction.config import ExtractionConfig
 from extraction.geometry import normalize_rectangle
 from extraction.ocr_reader import RapidOcrReader
@@ -23,8 +24,10 @@ def read_pdf(
     """逐页读取 PDF，并仅对低质量文本层页面执行 OCR。"""
 
     page_drafts: list[PageDraft] = []
+    tables: list[ExtractedTable] = []
     with pymupdf.open(str(path)) as document:  # type: ignore[no-untyped-call]
         for page in document:
+            tables.extend(_extract_native_tables(page, page.number + 1))
             native_page = _read_native_page(page, config)
             if _native_text_is_usable(native_page, config):
                 page_drafts.append(native_page)
@@ -58,7 +61,7 @@ def read_pdf(
                     )
                 )
 
-    return DocumentDraft(pages=page_drafts)
+    return DocumentDraft(pages=page_drafts, tables=merge_cross_page_tables(tables))
 
 
 def calculate_text_quality(text: str, minimum_chars: int) -> float:
@@ -179,3 +182,69 @@ def _read_ocr_page(
     png_bytes = pixmap.tobytes("png")  # type: ignore[no-untyped-call]
     with Image.open(BytesIO(png_bytes)) as image:
         return ocr_reader.read(image)
+
+
+def _extract_native_tables(page: pymupdf.Page, page_number: int) -> list[ExtractedTable]:
+    """使用 PyMuPDF 的线框/文本表格识别保留单元格结构。"""
+
+    try:
+        finder = page.find_tables()  # type: ignore[no-untyped-call]
+    except (AttributeError, RuntimeError, ValueError):
+        return []
+    extracted: list[ExtractedTable] = []
+    for table in finder.tables:
+        raw_rows = table.extract()
+        rows = [[str(cell or "").replace("\n", " ").strip() for cell in row] for row in raw_rows]
+        rows = [row for row in rows if any(row)]
+        if not rows:
+            continue
+        extracted.append(
+            ExtractedTable(
+                page_number=page_number,
+                page_numbers=[page_number],
+                title=None,
+                rows=rows,
+                confidence=0.92,
+            )
+        )
+    return extracted
+
+
+def merge_cross_page_tables(tables: list[ExtractedTable]) -> list[ExtractedTable]:
+    """按连续页和重复表头合并跨页表格，并去掉续页重复表头。"""
+
+    merged: list[ExtractedTable] = []
+    for table in tables:
+        if not merged or not _is_table_continuation(merged[-1], table):
+            merged.append(table)
+            continue
+        previous = merged[-1]
+        page_numbers = [
+            *previous.page_numbers,
+            *(table.page_numbers or ([table.page_number] if table.page_number else [])),
+        ]
+        merged[-1] = previous.model_copy(
+            update={
+                "rows": [*previous.rows, *table.rows[1:]],
+                "page_numbers": list(dict.fromkeys(page_numbers)),
+                "is_cross_page": True,
+                "confidence": min(previous.confidence or 1.0, table.confidence or 1.0),
+            }
+        )
+    return merged
+
+
+def _is_table_continuation(previous: ExtractedTable, current: ExtractedTable) -> bool:
+    if not previous.rows or not current.rows:
+        return False
+    previous_pages = previous.page_numbers or (
+        [previous.page_number] if previous.page_number is not None else []
+    )
+    current_pages = current.page_numbers or (
+        [current.page_number] if current.page_number is not None else []
+    )
+    if not previous_pages or not current_pages or current_pages[0] != previous_pages[-1] + 1:
+        return False
+    previous_header = tuple(cell.casefold() for cell in previous.rows[0])
+    current_header = tuple(cell.casefold() for cell in current.rows[0])
+    return bool(any(previous_header)) and previous_header == current_header

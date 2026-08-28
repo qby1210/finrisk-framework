@@ -70,11 +70,26 @@ def test_file_query_endpoint_returns_source_regions() -> None:
     assert payload["source_mappings"][0]["regions"]
 
 
-def test_ambiguous_text_without_llm_returns_service_unavailable() -> None:
+def test_ambiguous_text_without_llm_uses_local_fallback() -> None:
     response = client.post(
         "/api/query/analyze/text",
         json={"text": "这是今天整理的一份材料。"},
     )
 
-    assert response.status_code == 503
-    assert "DEEPSEEK_API_KEY" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json()["classification"]["method"] == "rule_fallback"
+
+
+def test_text_query_accepts_user_selected_scene() -> None:
+    response = client.post(
+        "/api/query/analyze/text",
+        json={
+            "text": "这是一份很难仅靠文本判断载体的材料。",
+            "scene": "ST4_meeting_material",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["classification"]["scene"] == "ST4_meeting_material"
+    assert payload["classification"]["method"] == "user"

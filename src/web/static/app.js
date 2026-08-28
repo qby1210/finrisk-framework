@@ -19,6 +19,13 @@ const sceneLabels = {
   ST6_penalty_backend_fact: "监管处罚 / 后台业务事实",
 };
 
+const classificationMethodLabels = {
+  user: "用户指定场景",
+  rule: "本地规则分类",
+  rule_fallback: "本地规则回退",
+  llm: "大模型复核分类",
+};
+
 const el = (selector) => document.querySelector(selector);
 
 document.querySelectorAll("[data-view]").forEach((button) => {
@@ -48,6 +55,8 @@ el("#query-text").addEventListener("input", (event) => {
 });
 el("#analyze-button").addEventListener("click", analyzeQuery);
 el("#copy-risk-result").addEventListener("click", copyRiskResult);
+el("#export-risk-report").addEventListener("click", exportRiskReport);
+el("#save-review").addEventListener("click", saveQueryReview);
 el("#risk-filter").addEventListener("change", (event) => {
   state.riskFilter = event.target.value;
   renderRiskSentences();
@@ -139,17 +148,20 @@ async function analyzeQuery() {
   let options;
   if (state.queryMode === "text") {
     const text = el("#query-text").value.trim();
+    const scene = el("#query-scene").value || null;
     if (!text) return showFormError("#query-error", "请输入需要审查的文字。");
     path = "/api/query/analyze/text";
     options = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, scene }),
     };
   } else {
     if (!state.queryFile) return showFormError("#query-error", "请先选择 Query 文件。");
     const form = new FormData();
     form.append("file", state.queryFile);
+    const scene = el("#query-scene").value;
+    if (scene) form.append("scene", scene);
     path = "/api/query/analyze/file";
     options = { method: "POST", body: form };
   }
@@ -178,14 +190,23 @@ function renderRiskResult() {
     <article class="summary-card"><span>风险语句</span><strong>${summary.risky_sentence_count} / ${summary.sentence_count}</strong><small>检索 ${summary.retrieval_sentence_count} 句 · 门槛 ${formatPercent(summary.retrieval_threshold)}</small></article>
     <article class="summary-card"><span>计算路径</span><strong>${summary.llm_reviewed_sentence_count} 句复核</strong><small>本地直出 ${summary.local_direct_sentence_count} 句 · ${escapeHtml(summary.llm_model || "本地模式")}</small></article>
   `;
+  el("#review-status").value = "confirmed";
+  el("#review-scene").value = "";
+  el("#review-labels").value = summary.risk_labels.join("，");
+  el("#review-comment").value = "";
+  el("#review-state").textContent = "尚未保存人工复核";
   el("#risk-warnings").innerHTML = summary.warnings
     .map((warning) => `<p>提示：${escapeHtml(warning)}</p>`)
     .join("");
   const classification = result.classification;
-  el("#classification-note").textContent = `${sceneLabels[classification.scene] || classification.scene} · ${formatPercent(classification.confidence)} · ${classification.method === "llm" ? "大模型复核分类" : "本地规则分类"}`;
+  const methodLabel = classificationMethodLabels[classification.method] || classification.method;
+  el("#classification-note").textContent = `${sceneLabels[classification.scene] || classification.scene} · ${formatPercent(classification.confidence)} · ${methodLabel}`;
   const extraction = result.extraction;
   const quality = extraction.quality_score == null ? "—" : formatPercent(extraction.quality_score);
   el("#extraction-note").textContent = `${extraction.extraction_method} · ${extraction.page_count} 页 · OCR ${extraction.ocr_page_count} 页 · 质量 ${quality} · SHA-256 ${extraction.checksum_sha256.slice(0, 10)}…`;
+const timing = result.stage_timings_ms || {};
+  const riskTiming = summary.stage_timings_ms || {};
+  el("#timing-note").textContent = `总耗时 ${formatDuration(timing.total)} · LLM ${formatDuration(riskTiming.llm_review)} · 检索 ${formatDuration(riskTiming.case_retrieval)}`;
   const candidates = classification.rule_candidates.filter((item) => item.score > 0).slice(0, 4);
   el("#classification-candidates").innerHTML = candidates.length
     ? candidates.map((item, index) => `
@@ -226,6 +247,7 @@ function renderRiskSentences() {
         <strong>${escapeHtml(matched.case_title || matched.violation_behavior.slice(0, 72))}</strong>
         <small>${escapeHtml(matched.matched_risk_tags.join(" · ") || matched.risk_tags.join(" · ") || "未标注")}</small>
         <small class="score-breakdown">BM25 ${formatPercent(matched.bm25_score)} · 向量 ${formatPercent(matched.vector_score)} · RRF ${formatPercent(matched.rrf_score)}</small>
+        <small>${escapeHtml(matched.match_reason || ("命中证据切片 " + matched.matched_unit_id))}</small>
       </button>
     `).join("");
     return `
@@ -283,6 +305,7 @@ function renderTopCases() {
       <span><b>TOP ${index + 1} · ${escapeHtml(item.case_id)}</b><em>${formatPercent(item.score)}</em></span>
       <strong>${escapeHtml(item.case_title || item.violation_behavior.slice(0, 78))}</strong>
       <small>${escapeHtml(item.matched_risk_tags.join(" · ") || item.risk_tags.join(" · "))}</small>
+      <small>${escapeHtml(item.match_reason || ("命中证据切片 " + item.matched_unit_id))}</small>
     </button>
   `).join("") : '<div class="inline-empty compact">没有达到检索门槛且标签对齐的案例。</div>';
 }
@@ -308,6 +331,67 @@ async function copyRiskResult() {
   ];
   await navigator.clipboard.writeText(lines.join("\n"));
   toast("结果摘要已复制");
+}
+
+async function saveQueryReview() {
+  if (!state.riskResult) return;
+  const result = state.riskResult;
+  const rawLabels = el("#review-labels").value.trim();
+  const correctedLabels = rawLabels
+    ? [...new Set(rawLabels.split(/[,，、/]/).map((value) => value.trim()).filter(Boolean))]
+    : [];
+  const payload = {
+    query_id: result.query_id,
+    query_checksum: result.extraction.checksum_sha256,
+    status: el("#review-status").value,
+    reviewer: el("#reviewer-name").value.trim() || "现场审核员",
+    comment: el("#review-comment").value.trim(),
+    original_risk_labels: result.risk_summary.risk_labels,
+    corrected_risk_labels: correctedLabels,
+    corrected_scene: el("#review-scene").value || null,
+    analysis_schema_version: result.schema_version,
+  };
+  setBusy("#save-review", true);
+  try {
+    const saved = await api("/api/query/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    el("#review-state").textContent = `已保存 ${saved.review_id} · ${new Date(saved.reviewed_at).toLocaleString("zh-CN")}`;
+    toast("人工复核记录已保存");
+  } catch (error) {
+    toast(`复核保存失败：${error.message}`);
+  } finally {
+    setBusy("#save-review", false);
+  }
+}
+
+function exportRiskReport() {
+  if (!state.riskResult) return;
+  const result = state.riskResult;
+  const summary = result.risk_summary;
+  const findings = result.risk_assessments.map((item, index) => `
+    <tr><td>${index + 1}</td><td>${escapeHtml(item.text)}</td><td>${escapeHtml(item.risk_level_name)} ${formatPercent(item.risk_score)}</td><td>${escapeHtml(item.risk_labels.join("、") || "无")}</td><td>${escapeHtml(item.reasoning)}</td></tr>
+  `).join("");
+  const cases = summary.top_matched_cases.map((item, index) => `
+    <tr><td>${index + 1}</td><td>${escapeHtml(item.case_id)}</td><td>${escapeHtml(item.party_name || item.case_title || "—")}</td><td>${escapeHtml(item.matched_risk_tags.join("、") || item.risk_tags.join("、"))}</td><td>${escapeHtml(item.match_reason || "混合检索命中")}</td></tr>
+  `).join("");
+  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>FinRisk审查报告-${escapeHtml(result.query_id)}</title><style>body{max-width:1100px;margin:40px auto;padding:0 24px;color:#202631;font:14px/1.65 "Microsoft YaHei",sans-serif}header{border-top:8px solid #4994df;border-bottom:2px solid #c41e21;padding:22px 0}h1{margin:0;color:#c41e21}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0}.meta div{padding:12px;background:#f4f5f6;border:1px solid #d8d9dc}table{width:100%;border-collapse:collapse;margin:12px 0 26px}th,td{padding:9px;border:1px solid #d8d9dc;text-align:left;vertical-align:top}th{background:#4994df;color:#fff}.source{padding:16px;background:#f8f8f8;white-space:pre-wrap}.foot{color:#687385;font-size:12px}@media print{body{margin:0}}</style></head><body><header><h1>保险营销合规智能审查报告</h1><p>FinRisk · 可追溯 Query 风险识别与案例佐证</p></header><section class="meta"><div>整体结论<br><strong>${escapeHtml(summary.overall_level_name)}</strong></div><div>整体风险分<br><strong>${formatPercent(summary.overall_score)}</strong></div><div>材料场景<br><strong>${escapeHtml(sceneLabels[result.classification.scene] || result.classification.scene)}</strong></div><div>风险标签<br><strong>${escapeHtml(summary.risk_labels.join("、") || "无")}</strong></div><div>分析耗时<br><strong>${formatDuration(result.stage_timings_ms?.total)}</strong></div><div>生成时间<br><strong>${new Date().toLocaleString("zh-CN")}</strong></div></section><h2>原始材料</h2><div class="source">${escapeHtml(result.source_text)}</div><h2>逐句风险结果</h2><table><thead><tr><th>#</th><th>原文</th><th>风险</th><th>标签</th><th>理由</th></tr></thead><tbody>${findings}</tbody></table><h2>相似处罚案例</h2><table><thead><tr><th>#</th><th>案例编号</th><th>主体/标题</th><th>匹配标签</th><th>相似理由</th></tr></thead><tbody>${cases || '<tr><td colspan="5">无达到门槛的案例</td></tr>'}</tbody></table><p class="foot">Query ID：${escapeHtml(result.query_id)} · SHA-256：${escapeHtml(result.extraction.checksum_sha256)} · Schema：${escapeHtml(result.schema_version)}。本报告为机器辅助审查结果，最终结论以人工复核为准。</p></body></html>`;
+  downloadText(`FinRisk审查报告-${result.query_id}.html`, html, "text/html;charset=utf-8");
+  toast("审查报告已导出，可用浏览器打印为 PDF");
+}
+
+function downloadText(filename, content, mediaType) {
+  const blob = new Blob([content], { type: mediaType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function ingestCase() {
@@ -373,6 +457,11 @@ async function loadCases() {
     risk_tag: el("#case-risk-tag").value.trim(),
     retrieval_status: el("#case-status").value,
     origin: el("#case-origin").value,
+regulator: el("#case-regulator").value.trim(),
+    party_name: el("#case-party-name").value.trim(),
+    institution_type: el("#case-institution-type").value.trim(),
+    penalty_date_from: el("#case-date-from").value,
+    penalty_date_to: el("#case-date-to").value,
   };
   Object.entries(filters).forEach(([key, value]) => value && params.set(key, value));
   el("#case-list").innerHTML = '<div class="inline-empty">正在读取案例……</div>';
@@ -572,6 +661,12 @@ function formatPercent(value) {
 
 function formatDate(value) {
   return value ? new Intl.DateTimeFormat("zh-CN").format(new Date(`${value}T00:00:00`)) : "—";
+}
+
+function formatDuration(milliseconds) {
+  if (milliseconds == null || Number.isNaN(Number(milliseconds))) return "—";
+  const value = Number(milliseconds);
+  return value >= 1000 ? `${(value / 1000).toFixed(2)} s` : `${Math.round(value)} ms`;
 }
 
 function escapeHtml(value) {

@@ -1,11 +1,12 @@
 """FinRisk FastAPI 应用和本地 Web 工作台入口。"""
 
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
@@ -13,7 +14,8 @@ from pydantic import Field
 from application.analysis_service import QueryAnalysisService
 from application.case_service import CaseManagementService
 from application.query_service import QueryProcessingService
-from application.retrieval_service import CaseRetrievalService
+from application.retrieval_service import CaseRetrievalService, CaseSearchFilters
+from application.review_service import QueryReviewService
 from domain.common import ContractModel
 from domain.knowledge_models import (
     CaseDetail,
@@ -22,6 +24,8 @@ from domain.knowledge_models import (
     CaseStatistics,
     MatchedCase,
 )
+from domain.query_models import QueryScene
+from domain.review_models import QueryReviewRecord, QueryReviewRequest
 from domain.risk_models import QueryAnalysisResult
 from extraction import ExtractionError
 from llm import (
@@ -29,7 +33,6 @@ from llm import (
     OpenAICompatibleLLMClient,
     create_llm_client_from_env,
 )
-from query.classification import LLMRequiredError
 from risk.detection import RuleRiskDetector
 from risk.pipeline import RiskAssessmentPipeline
 from risk.taxonomy import load_taxonomy_descriptions
@@ -49,6 +52,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 class TextQueryRequest(ContractModel):
     text: str = Field(min_length=1, max_length=1_000_000, description="待分析完整文本")
+    scene: QueryScene | None = Field(default=None, description="用户指定场景；为空时自动识别")
 
 
 class ClassifierStatusResponse(ContractModel):
@@ -110,6 +114,12 @@ def get_analysis_service() -> QueryAnalysisService:
 
 
 @lru_cache(maxsize=1)
+def get_review_service() -> QueryReviewService:
+    settings = get_settings()
+    return QueryReviewService(settings.query_reviews_path, get_repository().risk_dictionary())
+
+
+@lru_cache(maxsize=1)
 def get_case_service() -> CaseManagementService:
     return CaseManagementService(
         settings=get_settings(),
@@ -122,6 +132,7 @@ def get_case_service() -> CaseManagementService:
 AnalysisDependency = Annotated[QueryAnalysisService, Depends(get_analysis_service)]
 CaseDependency = Annotated[CaseManagementService, Depends(get_case_service)]
 RetrievalDependency = Annotated[CaseRetrievalService, Depends(get_retrieval_service)]
+ReviewDependency = Annotated[QueryReviewService, Depends(get_review_service)]
 
 
 @app.get("/", include_in_schema=False)
@@ -156,13 +167,28 @@ async def classifier_status(service: AnalysisDependency) -> ClassifierStatusResp
     )
 
 
+@app.post("/api/query/reviews", response_model=QueryReviewRecord, status_code=201)
+async def save_query_review(
+    payload: QueryReviewRequest,
+    service: ReviewDependency,
+) -> QueryReviewRecord:
+    try:
+        return service.save(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @app.post("/api/query/analyze/text", response_model=QueryAnalysisResult)
 async def analyze_text_query(
     payload: TextQueryRequest,
     service: AnalysisDependency,
 ) -> QueryAnalysisResult:
     try:
-        return await service.process_text(payload.text, metadata={"channel": "web"})
+        return await service.process_text(
+            payload.text,
+            metadata={"channel": "web"},
+            scene=payload.scene,
+        )
     except Exception as error:
         _raise_query_error(error)
         raise
@@ -172,6 +198,7 @@ async def analyze_text_query(
 async def analyze_file_query(
     file: Annotated[UploadFile, File(description="PDF、图片、TXT、Markdown 或 DOCX")],
     service: AnalysisDependency,
+    scene: Annotated[QueryScene | None, Form()] = None,
 ) -> QueryAnalysisResult:
     safe_filename = _safe_filename(file.filename)
     try:
@@ -182,6 +209,7 @@ async def analyze_file_query(
                 temporary_path,
                 source_uri=f"upload://{safe_filename}",
                 metadata={"upload_content_type": file.content_type or "application/octet-stream"},
+                scene=scene,
             )
     except HTTPException:
         raise
@@ -206,6 +234,11 @@ async def list_cases(
     risk_tag: Annotated[str | None, Query(max_length=100)] = None,
     retrieval_status: Annotated[str | None, Query(pattern="^(active|inactive)$")] = None,
     origin: Annotated[str | None, Query(max_length=100)] = None,
+    regulator: Annotated[str | None, Query(max_length=200)] = None,
+    party_name: Annotated[str | None, Query(max_length=200)] = None,
+    institution_type: Annotated[str | None, Query(max_length=100)] = None,
+    penalty_date_from: date | None = None,
+    penalty_date_to: date | None = None,
 ) -> CaseListPage:
     return service.list_cases(
         page=page,
@@ -214,6 +247,11 @@ async def list_cases(
         risk_tag=risk_tag,
         status=retrieval_status,
         origin=origin,
+        regulator=regulator,
+        party_name=party_name,
+        institution_type=institution_type,
+        penalty_date_from=penalty_date_from,
+        penalty_date_to=penalty_date_to,
     )
 
 
@@ -276,13 +314,24 @@ async def search_cases(
     q: Annotated[str, Query(min_length=1, max_length=5000)],
     top_k: Annotated[int, Query(ge=1, le=20)] = 5,
     risk_tag: Annotated[str | None, Query(max_length=100)] = None,
+    regulator: Annotated[str | None, Query(max_length=200)] = None,
+    party_name: Annotated[str | None, Query(max_length=200)] = None,
+    institution_type: Annotated[str | None, Query(max_length=100)] = None,
+    penalty_date_from: date | None = None,
+    penalty_date_to: date | None = None,
 ) -> list[MatchedCase]:
-    return service.search(q, top_k=top_k, risk_tags={risk_tag} if risk_tag else None)
+    filters = CaseSearchFilters(
+        risk_tags=frozenset({risk_tag}) if risk_tag else frozenset(),
+        regulator=regulator,
+        party_name=party_name,
+        institution_type=institution_type,
+        penalty_date_from=penalty_date_from,
+        penalty_date_to=penalty_date_to,
+    )
+    return service.search(q, top_k=top_k, filters=filters)
 
 
 def _raise_query_error(error: Exception) -> None:
-    if isinstance(error, LLMRequiredError):
-        raise HTTPException(status_code=503, detail=str(error)) from error
     if isinstance(error, LLMProviderError):
         raise HTTPException(status_code=502, detail=str(error)) from error
     if isinstance(error, (ExtractionError, OSError, UnicodeError, ValueError)):

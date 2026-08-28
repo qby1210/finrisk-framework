@@ -20,6 +20,8 @@ class CaseSummary(ContractModel):
     penalty_content: str | None = None
     regulator: str | None = None
     penalty_date: date | None = None
+    institution_type: str | None = None
+    source_url: str | None = None
     risk_tags: list[str] = Field(default_factory=list)
     risk_domains: list[str] = Field(default_factory=list)
     case_origin: str
@@ -42,12 +44,11 @@ class EvidenceChunk(ContractModel):
 class CaseDetail(CaseSummary):
     """案例详情；保留权威 JSONL 中对日常管理有用的字段。"""
 
-    institution_type: str | None = None
     case_summary: str | None = None
     related_parties: list[dict[str, object]] = Field(default_factory=list)
+    entity_relations: list[dict[str, object]] = Field(default_factory=list)
     legal_basis_refs: list[dict[str, object]] = Field(default_factory=list)
     source_file: str | None = None
-    source_url: str | None = None
     source_sha256: str | None = None
     quality_flags: list[str] = Field(default_factory=list)
     data_version: str
@@ -85,6 +86,10 @@ class MatchedCase(ContractModel):
     violation_behavior: str
     penalty_content: str | None = None
     regulator: str | None = None
+    party_name: str | None = None
+    institution_type: str | None = None
+    penalty_date: date | None = None
+    source_url: str | None = None
     risk_tags: list[str] = Field(default_factory=list)
     score: float = Field(ge=0, le=1)
     bm25_score: float = Field(default=0.0, ge=0, le=1)
@@ -95,6 +100,7 @@ class MatchedCase(ContractModel):
     matched_text: str
     matched_source: str
     matched_unit_id: str
+    match_reason: str = ""
 
 
 class CaseIngestionResult(ContractModel):

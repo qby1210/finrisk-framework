@@ -39,10 +39,6 @@ ST6_penalty_backend_fact：监管处罚决定、违法事实，或后台业务�
 """.strip()
 
 
-class LLMRequiredError(RuntimeError):
-    """规则不能可靠分类，但当前没有可用 LLM。"""
-
-
 @dataclass(frozen=True, slots=True)
 class QueryClassificationContext:
     """只包含文件格式特征，不使用不可确定的来源渠道。"""
@@ -313,9 +309,21 @@ class QuerySceneClassifier:
         self,
         text: str,
         context: QueryClassificationContext | None = None,
+        *,
+        scene_override: QueryScene | None = None,
     ) -> QuerySceneClassification:
         evaluation = self._rule_classifier.evaluate(text, context)
         top = evaluation.candidates[0]
+        if scene_override is not None:
+            return QuerySceneClassification(
+                scene=scene_override,
+                confidence=1.0,
+                method=QueryClassificationMethod.USER,
+                evidence=["用户指定材料场景"],
+                rule_candidates=evaluation.candidates,
+                classifier_version=CLASSIFIER_VERSION,
+                taxonomy_version=TAXONOMY_VERSION,
+            )
         if evaluation.high_confidence:
             return QuerySceneClassification(
                 scene=top.scene,
@@ -328,9 +336,16 @@ class QuerySceneClassifier:
             )
 
         if self._llm_client is None:
-            raise LLMRequiredError(
-                "规则结果置信度不足或存在多类冲突，需要配置 DEEPSEEK_API_KEY "
-                "或 FINRISK_LLM_API_KEY 后调用大模型分类"
+            fallback_scene = top.scene if top.score > 0 else _fallback_scene(text)
+            fallback_confidence = top.confidence if top.score > 0 else 0.25
+            return QuerySceneClassification(
+                scene=fallback_scene,
+                confidence=fallback_confidence,
+                method=QueryClassificationMethod.RULE_FALLBACK,
+                evidence=[*top.evidence, "未配置大模型，采用本地规则最高分候选"],
+                rule_candidates=evaluation.candidates,
+                classifier_version=CLASSIFIER_VERSION,
+                taxonomy_version=TAXONOMY_VERSION,
             )
 
         llm_response = await self._llm_client.complete_json(
@@ -376,6 +391,18 @@ class QuerySceneClassifier:
         )
 
 
+def _fallback_scene(text: str) -> QueryScene:
+    """没有模型且规则无命中时，按文体给出可解释的保守路由。"""
+
+    if re.search(r"(?:处罚|监管|检查|系统记录|业务台账|审计|违法事实)", text):
+        return QueryScene.ST6_PENALTY_BACKEND_FACT
+    if re.search(r"(?:坐席|回访|培训|销售话术|客户[：:])", text):
+        return QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK
+    if len("".join(text.split())) <= 120:
+        return QueryScene.ST1_POSTER_SMS_SOCIAL
+    return QueryScene.ST3_PRODUCT_INTRO_DETAIL
+
+
 def scene_name(scene: QueryScene) -> str:
     """返回六类场景的中文名称。"""
 
@@ -405,7 +432,6 @@ def _classification_excerpt(text: str, max_chars: int = 24_000) -> str:
 __all__ = [
     "CLASSIFIER_VERSION",
     "ClassifierStatus",
-    "LLMRequiredError",
     "QueryClassificationContext",
     "QuerySceneClassifier",
     "RULE_VERSION",

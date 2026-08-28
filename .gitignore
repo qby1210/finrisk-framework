@@ -13,6 +13,9 @@ data/raw/cases/*
 !data/raw/cases/crawl/
 !data/raw/cases/crawl/**
 data/raw/query/*
+!data/raw/query/query_test_set_160.json
+!data/raw/query/query_dev_set.json
+!data/raw/query/query_long_tail_enhancement.json
 data/interim/
 data/processed/cases/
 !data/**/.gitkeep

@@ -11,6 +11,7 @@
 
 import re
 from pathlib import Path
+from typing import TypedDict
 
 from .common import (
     FetchError,
@@ -32,25 +33,34 @@ _ITEM_RE = re.compile(
     r'(?:title="([^"]*)")?[^>]*>.*?</a>\s*<span[^>]*class="date"[^>]*>([^<]*)</span>',
     re.S,
 )
-_NEXT_PAGE_RE = re.compile(
-    r'tagname="' + re.escape(COLUMN_PATH) + r'/([0-9a-f]+)-(\d+)\.html"'
-)
+_NEXT_PAGE_RE = re.compile(r'tagname="' + re.escape(COLUMN_PATH) + r'/([0-9a-f]+)-(\d+)\.html"')
 _TOTAL_PAGES_RE = re.compile(r'totalpage="(\d+)"|</font>\s*/\s*<b>(\d+)</b>')
 _CONTENT_START = 'id="xxgk_con"'
 _CONTENT_END = re.compile(r'<div[^>]+class="[^"]*(?:foot|list_page)[^"]*"')
-_ARTICLE_ID_RE = re.compile(r'[0-9a-z]+(?=-\d+\.html)')
+_ARTICLE_ID_RE = re.compile(r"[0-9a-z]+(?=-\d+\.html)")
 
 
-def _parse_list(html: str) -> list[dict]:
+class CrawlStats(TypedDict):
+    source: str
+    pages: int
+    new: int
+    skipped: int
+    empty: int
+    errors: int
+
+
+def _parse_list(html: str) -> list[dict[str, str]]:
     items = []
     for match in _ITEM_RE.finditer(html):
         path, slug, title, date = match.groups()
-        items.append({
-            "slug": slug,
-            "title": (title or "").strip(),
-            "date": date.strip(),
-            "url": f"{BASE}{path}",  # path 捕获组已含结尾 /index.html
-        })
+        items.append(
+            {
+                "slug": slug,
+                "title": (title or "").strip(),
+                "date": date.strip(),
+                "url": f"{BASE}{path}",  # path 捕获组已含结尾 /index.html
+            }
+        )
     return items
 
 
@@ -66,9 +76,7 @@ def _detail_text(html: str) -> str:
         region = region[: end_match.start()]
     text = html_to_text(region)
     # 去掉面包屑导航行
-    return "\n".join(
-        line for line in text.splitlines() if not line.startswith("所在位置")
-    ).strip()
+    return "\n".join(line for line in text.splitlines() if not line.startswith("所在位置")).strip()
 
 
 def crawl(
@@ -77,12 +85,19 @@ def crawl(
     full: bool = False,
     max_pages: int = 0,
     delay: float = 1.5,
-) -> dict:
+) -> CrawlStats:
     state = StateStore(out_dir / "state.json")
     text_dir = out_dir / "pbc"
     index_path = out_dir / "index.jsonl"
     errors_path = out_dir / "errors.jsonl"
-    stats = {"source": "pbc", "pages": 0, "new": 0, "skipped": 0, "empty": 0, "errors": 0}
+    stats: CrawlStats = {
+        "source": "pbc",
+        "pages": 0,
+        "new": 0,
+        "skipped": 0,
+        "empty": 0,
+        "errors": 0,
+    }
 
     page_urls = [LIST_FIRST]
     page_index = 0
@@ -132,16 +147,19 @@ def crawl(
                 continue
             txt_name = f"{item['slug']}.txt"
             write_text(text_dir / txt_name, text)
-            append_jsonl(index_path, {
-                "source": "pbc",
-                "column_name": "人民银行行政处罚公示",
-                "slug": item["slug"],
-                "title": item["title"],
-                "publish_date": item["date"],
-                "source_url": item["url"],
-                "txt_path": str(text_dir / txt_name),
-                "sha1": sha1_text(text),
-            })
+            append_jsonl(
+                index_path,
+                {
+                    "source": "pbc",
+                    "column_name": "人民银行行政处罚公示",
+                    "slug": item["slug"],
+                    "title": item["title"],
+                    "publish_date": item["date"],
+                    "source_url": item["url"],
+                    "txt_path": str(text_dir / txt_name),
+                    "sha1": sha1_text(text),
+                },
+            )
             state.add(key)
             stats["new"] += 1
         state.save()

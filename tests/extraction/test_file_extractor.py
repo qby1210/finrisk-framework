@@ -7,6 +7,7 @@ import numpy as np
 import pymupdf
 import pytest
 from docx import Document
+from openpyxl import Workbook
 from PIL import Image
 from pydantic import ValidationError
 
@@ -15,9 +16,10 @@ from domain.common import (
     ExtractionStatus,
     FilePurpose,
 )
-from domain.file_models import NormalizedPoint
+from domain.file_models import ExtractedTable, NormalizedPoint
 from extraction import ExtractionConfig, FileExtractor, UnsupportedFileTypeError
 from extraction.ocr_reader import RapidOcrReader
+from extraction.pdf_reader import merge_cross_page_tables
 from offline.extraction import extract_case_file
 from query.extraction import extract_query_file
 
@@ -189,6 +191,57 @@ def test_docx_reads_paragraphs_and_tables(tmp_path: Path) -> None:
     assert "处罚事实" in result.full_text
     assert "机构 | 罚款" in result.full_text
     assert result.tables[0].rows == [["机构", "罚款"]]
+
+
+def test_csv_and_xlsx_preserve_table_rows(tmp_path: Path) -> None:
+    csv_path = tmp_path / "cases.csv"
+    csv_path.write_text("机构,罚款\n甲公司,10万元\n", encoding="utf-8")
+    csv_result = FileExtractor().extract(csv_path, FilePurpose.CASE)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "处罚明细"
+    sheet.append(["机构", "罚款"])
+    sheet.append(["乙公司", "20万元"])
+    xlsx_path = tmp_path / "cases.xlsx"
+    workbook.save(xlsx_path)
+    workbook.close()
+    xlsx_result = FileExtractor().extract(xlsx_path, FilePurpose.CASE)
+
+    assert csv_result.extraction_method is ExtractionMethod.SPREADSHEET
+    assert csv_result.tables[0].rows[1] == ["甲公司", "10万元"]
+    assert xlsx_result.extraction_method is ExtractionMethod.SPREADSHEET
+    assert xlsx_result.tables[0].title == "处罚明细"
+    assert xlsx_result.tables[0].rows[1] == ["乙公司", "20万元"]
+    assert "乙公司 | 20万元" in xlsx_result.full_text
+
+
+def test_consecutive_pdf_tables_with_repeated_header_are_merged() -> None:
+    tables = [
+        ExtractedTable(
+            page_number=1,
+            page_numbers=[1],
+            rows=[["机构", "罚款"], ["甲公司", "10万元"]],
+            confidence=0.92,
+        ),
+        ExtractedTable(
+            page_number=2,
+            page_numbers=[2],
+            rows=[["机构", "罚款"], ["乙公司", "20万元"]],
+            confidence=0.90,
+        ),
+    ]
+
+    merged = merge_cross_page_tables(tables)
+
+    assert len(merged) == 1
+    assert merged[0].page_numbers == [1, 2]
+    assert merged[0].is_cross_page is True
+    assert merged[0].rows == [
+        ["机构", "罚款"],
+        ["甲公司", "10万元"],
+        ["乙公司", "20万元"],
+    ]
 
 
 def test_query_entry_sets_query_purpose_and_logical_uri(tmp_path: Path) -> None:

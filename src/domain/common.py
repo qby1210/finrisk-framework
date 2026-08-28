@@ -34,6 +34,7 @@ class ExtractionMethod(StrEnum):
     HYBRID = "hybrid"
     PLAIN_TEXT = "plain_text"
     DOCX = "docx"
+    SPREADSHEET = "spreadsheet"
 
 
 class LabelSource(StrEnum):

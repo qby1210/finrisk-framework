@@ -30,3 +30,5 @@ class JsonChatResponse(ContractModel):
     model: str
     usage: dict[str, object] = Field(default_factory=dict)
     finish_reason: str | None = None
+    latency_seconds: float = Field(default=0.0, ge=0)
+    attempts: int = Field(default=1, ge=1)

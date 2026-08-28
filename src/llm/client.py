@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Protocol
 
 import httpx
@@ -14,6 +16,7 @@ from llm.types import JsonChatRequest, JsonChatResponse
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-flash"
+_RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 class LLMConfigurationError(RuntimeError):
@@ -43,6 +46,9 @@ class LLMSettings:
     thinking: str = "disabled"
     connect_timeout_seconds: float = 10.0
     read_timeout_seconds: float = 90.0
+    max_retries: int = 2
+    max_concurrency: int = 6
+    retry_base_seconds: float = 0.6
 
 
 class _ProviderMessage(BaseModel):
@@ -61,19 +67,45 @@ class _ProviderResponse(BaseModel):
 
 
 class OpenAICompatibleLLMClient:
-    """通过 Chat Completions 协议调用 DeepSeek V4 Flash。"""
+    """通过连接池复用、限流和短重试调用 DeepSeek JSON 接口。"""
 
     def __init__(self, settings: LLMSettings) -> None:
         if settings.thinking not in {"enabled", "disabled"}:
             raise LLMConfigurationError("FINRISK_LLM_THINKING 只能是 enabled 或 disabled")
+        if settings.max_retries < 0 or settings.max_concurrency < 1:
+            raise LLMConfigurationError("LLM 重试次数和最大并发配置不合法")
         self._settings = settings
+        self._semaphore = asyncio.Semaphore(settings.max_concurrency)
+        timeout = httpx.Timeout(
+            settings.read_timeout_seconds,
+            connect=settings.connect_timeout_seconds,
+        )
+        limits = httpx.Limits(
+            max_connections=max(4, settings.max_concurrency * 2),
+            max_keepalive_connections=max(2, settings.max_concurrency),
+            keepalive_expiry=30.0,
+        )
+        self._client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=limits,
+            headers={
+                "Authorization": f"Bearer {settings.api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "FinRisk/1.1",
+            },
+        )
 
     @property
     def model_name(self) -> str:
         return self._settings.model
 
+    async def aclose(self) -> None:
+        """关闭共享连接池。"""
+
+        await self._client.aclose()
+
     async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
-        """关闭思考模式并严格解析 JSON，防止推理文本混入业务字段。"""
+        """关闭思考模式并严格解析 JSON，瞬时故障最多短重试两次。"""
 
         body: dict[str, object] = {
             "model": self._settings.model,
@@ -84,45 +116,59 @@ class OpenAICompatibleLLMClient:
             "thinking": {"type": self._settings.thinking},
         }
         body.update(request.extra_body)
-        timeout = httpx.Timeout(
-            self._settings.read_timeout_seconds,
-            connect=self._settings.connect_timeout_seconds,
-        )
-        headers = {
-            "Authorization": f"Bearer {self._settings.api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "FinRisk/1.0",
-        }
-        provider_response: _ProviderResponse | None = None
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{self._settings.base_url.rstrip('/')}/chat/completions",
-                    headers=headers,
-                    json=body,
-                )
-                response.raise_for_status()
-                provider_response = _ProviderResponse.model_validate(response.json())
-            parsed = json.loads(provider_response.choices[0].message.content)
-            data = TypeAdapter(dict[str, object]).validate_python(parsed)
-        except httpx.TimeoutException as error:
-            raise LLMProviderError("大模型请求超时") from error
-        except httpx.HTTPStatusError as error:
-            raise LLMProviderError(f"大模型服务返回 HTTP {error.response.status_code}") from error
-        except (httpx.HTTPError, json.JSONDecodeError, ValidationError, ValueError) as error:
-            if self._hit_length_limit(provider_response):
-                raise LLMProviderError("大模型输出达到 max_tokens 上限被截断") from error
-            raise LLMProviderError("大模型服务返回了无法解析的响应") from error
-        return JsonChatResponse(
-            data=data,
-            model=provider_response.model,
-            usage=provider_response.usage or {},
-            finish_reason=provider_response.choices[0].finish_reason,
-        )
+        started = perf_counter()
+        async with self._semaphore:
+            for attempt in range(1, self._settings.max_retries + 2):
+                provider_response: _ProviderResponse | None = None
+                try:
+                    response = await self._client.post(
+                        f"{self._settings.base_url.rstrip('/')}/chat/completions",
+                        json=body,
+                    )
+                    response.raise_for_status()
+                    provider_response = _ProviderResponse.model_validate(response.json())
+                    parsed = json.loads(provider_response.choices[0].message.content)
+                    data = TypeAdapter(dict[str, object]).validate_python(parsed)
+                    return JsonChatResponse(
+                        data=data,
+                        model=provider_response.model,
+                        usage=provider_response.usage or {},
+                        finish_reason=provider_response.choices[0].finish_reason,
+                        latency_seconds=round(perf_counter() - started, 6),
+                        attempts=attempt,
+                    )
+                except httpx.TimeoutException as error:
+                    if attempt <= self._settings.max_retries:
+                        await self._backoff(attempt)
+                        continue
+                    raise LLMProviderError("大模型请求超时") from error
+                except httpx.HTTPStatusError as error:
+                    if (
+                        error.response.status_code in _RETRYABLE_STATUS_CODES
+                        and attempt <= self._settings.max_retries
+                    ):
+                        await self._backoff(attempt)
+                        continue
+                    raise LLMProviderError(
+                        f"大模型服务返回 HTTP {error.response.status_code}"
+                    ) from error
+                except (
+                    httpx.HTTPError,
+                    json.JSONDecodeError,
+                    ValidationError,
+                    ValueError,
+                ) as error:
+                    if self._hit_length_limit(provider_response):
+                        raise LLMProviderError("大模型输出达到 max_tokens 上限被截断") from error
+                    raise LLMProviderError("大模型服务返回了无法解析的响应") from error
+        raise LLMProviderError("大模型请求未返回结果")  # pragma: no cover
+
+    async def _backoff(self, attempt: int) -> None:
+        await asyncio.sleep(self._settings.retry_base_seconds * (2 ** (attempt - 1)))
 
     @staticmethod
     def _hit_length_limit(provider_response: _ProviderResponse | None) -> bool:
-        """JSON 解析失败时区分"输出被 max_tokens 截断"与普通格式错误。"""
+        """JSON 解析失败时区分输出截断与普通格式错误。"""
 
         if provider_response is None or not provider_response.choices:
             return False
@@ -142,5 +188,8 @@ def create_llm_client_from_env() -> OpenAICompatibleLLMClient | None:
         thinking=os.getenv("FINRISK_LLM_THINKING", "disabled"),
         connect_timeout_seconds=float(os.getenv("FINRISK_LLM_CONNECT_TIMEOUT", "10")),
         read_timeout_seconds=float(os.getenv("FINRISK_LLM_READ_TIMEOUT", "90")),
+        max_retries=int(os.getenv("FINRISK_LLM_MAX_RETRIES", "2")),
+        max_concurrency=int(os.getenv("FINRISK_LLM_MAX_CONCURRENCY", "6")),
+        retry_base_seconds=float(os.getenv("FINRISK_LLM_RETRY_BASE_SECONDS", "0.6")),
     )
     return OpenAICompatibleLLMClient(settings)

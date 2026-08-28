@@ -67,8 +67,7 @@ class _CaseLLMOutput(BaseModel):
         if not isinstance(value, list):
             return []
         return [
-            {"law_name": item, "article": None} if isinstance(item, str) else item
-            for item in value
+            {"law_name": item, "article": None} if isinstance(item, str) else item for item in value
         ]
 
     @field_validator("risk_tag_basis", mode="before")
@@ -95,8 +94,11 @@ class _CaseLLMOutput(BaseModel):
         return items
 
     @field_validator(
-        "related_parties", "risk_tags", "keywords",
-        "marketing_expressions", mode="before",
+        "related_parties",
+        "risk_tags",
+        "keywords",
+        "marketing_expressions",
+        mode="before",
     )
     @classmethod
     def _none_list_to_empty(cls, value: object) -> object:
@@ -194,6 +196,13 @@ class IncrementalCaseBuilder:
         )
         today = datetime.now(UTC).date().isoformat()
         title = output.case_title or extraction.source_filename
+        field_confidence, field_sources = _field_quality(
+            output,
+            text=text,
+            llm_used=llm_used,
+            extraction_quality=extraction.quality_score,
+        )
+        entity_relations = _entity_relations(output, field_confidence)
         record: dict[str, object] = {
             "schema_version": "case_kb_v1",
             "case_id": case_id,
@@ -223,6 +232,7 @@ class IncrementalCaseBuilder:
             "penalty_date": _valid_date(output.penalty_date),
             "publish_date": None,
             "related_parties": [value.model_dump() for value in output.related_parties],
+            "entity_relations": entity_relations,
             "penalty_amounts": [],
             "legal_basis_refs": [value.model_dump() for value in output.legal_basis_refs],
             "case_scene": None,
@@ -250,8 +260,8 @@ class IncrementalCaseBuilder:
             "raw_text_path": None,
             "source_url": None,
             "source_sha256": extraction.checksum_sha256,
-            "field_confidence": {"overall": output.confidence},
-            "field_sources": {"method": "deepseek_v4_flash" if llm_used else "rule_fallback"},
+            "field_confidence": field_confidence,
+            "field_sources": field_sources,
             "created_at": today,
             "updated_at": today,
         }
@@ -293,13 +303,13 @@ class IncrementalCaseBuilder:
                         content=(
                             "你是保险监管处罚案例结构化专家。只能提取原文明确存在的事实；"
                             "不确定字段必须为null。party_name只填主要被处罚方的完整名称"
-                            "（机构全称或个人姓名），不得含\"当事人\"等标签字样、地址、"
+                            '（机构全称或个人姓名），不得含"当事人"等标签字样、地址、'
                             "身份证号或职务说明。violation_behavior必须是违法违规事实的完整"
                             "表述、以句号收尾，禁止在半句话处截断；penalty_content必须是处罚"
                             "决定的完整表述、以句号收尾，不得混入当事人身份信息。"
                             "risk_tags只能从给定标签选0到2个；"
                             "risk_tag_basis.quote必须是原文逐字片段。"
-                            "legal_basis_refs每项必须是对象{\"law_name\":\"法条名\",\"article\":\"第X条或null\"}；"
+                            'legal_basis_refs每项必须是对象{"law_name":"法条名","article":"第X条或null"}；'
                             "所有列表字段没有内容时输出[]，禁止输出null。输出单个JSON对象，字段为："
                             "case_title,party_name,institution_type,penalty_doc_no,violation_behavior,"
                             "penalty_content,regulator,penalty_date(YYYY-MM-DD或null),related_parties,"
@@ -523,3 +533,106 @@ def _extract_facts(text: str) -> str:
         re.DOTALL,
     )
     return (match.group(1) if match else text[:5000]).strip()
+
+
+def _field_quality(
+    output: _CaseLLMOutput,
+    *,
+    text: str,
+    llm_used: bool,
+    extraction_quality: float | None,
+) -> tuple[dict[str, float], dict[str, dict[str, str]]]:
+    """逐字段估计置信度，并说明字段是原文直取还是模型/规则归纳。"""
+
+    method = "deepseek_structured" if llm_used else "rule_fallback"
+    base = output.confidence if llm_used else min(output.confidence, 0.65)
+    if extraction_quality is not None:
+        base *= 0.75 + 0.25 * extraction_quality
+    values: dict[str, object] = {
+        "case_title": output.case_title,
+        "party_name": output.party_name,
+        "institution_type": output.institution_type,
+        "penalty_doc_no": output.penalty_doc_no,
+        "violation_behavior": output.violation_behavior,
+        "penalty_content": output.penalty_content,
+        "regulator": output.regulator,
+        "penalty_date": output.penalty_date,
+        "related_parties": output.related_parties,
+        "legal_basis_refs": output.legal_basis_refs,
+        "risk_tags": output.risk_tags,
+        "case_summary": output.case_summary,
+    }
+    confidence: dict[str, float] = {"overall": round(base, 4)}
+    sources: dict[str, dict[str, str]] = {}
+    for field_name, value in values.items():
+        snippets = _field_snippets(value)
+        if not snippets:
+            confidence[field_name] = 0.0
+            sources[field_name] = {"method": method, "grounding": "missing"}
+            continue
+        verbatim = any(snippet in text for snippet in snippets if len(snippet) >= 2)
+        score = min(1.0, base + 0.1) if verbatim else max(0.0, base - 0.08)
+        confidence[field_name] = round(score, 4)
+        sources[field_name] = {
+            "method": method,
+            "grounding": "verbatim" if verbatim else "derived",
+        }
+    return confidence, sources
+
+
+def _field_snippets(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, BaseModel):
+        return _field_snippets(value.model_dump())
+    if isinstance(value, dict):
+        return [snippet for item in value.values() for snippet in _field_snippets(item)]
+    if isinstance(value, list):
+        return [snippet for item in value for snippet in _field_snippets(item)]
+    return [str(value)]
+
+
+def _entity_relations(
+    output: _CaseLLMOutput,
+    field_confidence: dict[str, float],
+) -> list[dict[str, object]]:
+    """构造主要被处罚方、监管机构和相关主体之间的可复核关系表。"""
+
+    relations: list[dict[str, object]] = []
+    party = output.party_name
+    regulator = output.regulator
+    if party and regulator:
+        relations.append(
+            {
+                "subject": regulator,
+                "predicate": "处罚",
+                "object": party,
+                "confidence": min(
+                    field_confidence.get("regulator", 0.0),
+                    field_confidence.get("party_name", 0.0),
+                ),
+            }
+        )
+    if party and output.institution_type:
+        relations.append(
+            {
+                "subject": party,
+                "predicate": "机构类型",
+                "object": output.institution_type,
+                "confidence": field_confidence.get("institution_type", 0.0),
+            }
+        )
+    for related in output.related_parties:
+        if not party:
+            break
+        relations.append(
+            {
+                "subject": party,
+                "predicate": related.role or "关联主体",
+                "object": related.name,
+                "confidence": field_confidence.get("related_parties", 0.0),
+            }
+        )
+    return relations

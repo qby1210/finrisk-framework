@@ -53,9 +53,7 @@ class AppSettings:
                 os.getenv("FINRISK_MAX_UPLOAD_SIZE_BYTES", str(25 * 1024 * 1024))
             ),
             risk_display_threshold=float(os.getenv("FINRISK_RISK_DISPLAY_THRESHOLD", "0.20")),
-            retrieval_risk_threshold=float(
-                os.getenv("FINRISK_RETRIEVAL_RISK_THRESHOLD", "0.40")
-            ),
+            retrieval_risk_threshold=float(os.getenv("FINRISK_RETRIEVAL_RISK_THRESHOLD", "0.40")),
         )
 
     @property
@@ -77,6 +75,10 @@ class AppSettings:
     @property
     def risk_dictionary_path(self) -> Path:
         return self.case_kb_root / "dictionary" / "risk_type_dictionary.csv"
+
+    @property
+    def query_reviews_path(self) -> Path:
+        return self.project_root / "data" / "processed" / "reviews" / "query_reviews.jsonl"
 
     @property
     def manifest_path(self) -> Path:
