@@ -17,8 +17,8 @@ from domain.query_models import (
 from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
 
 TAXONOMY_VERSION = "query-scene-2.0"
-CLASSIFIER_VERSION = "query-scene-rule-llm-2.0"
-RULE_VERSION = "query-scene-rules-2.0"
+CLASSIFIER_VERSION = "query-scene-rule-llm-3.0"
+RULE_VERSION = "query-scene-rules-3.0"
 
 SCENE_NAMES = {
     QueryScene.ST1_POSTER_SMS_SOCIAL: "海报/短信/朋友圈短文案",
@@ -32,7 +32,7 @@ SCENE_NAMES = {
 _SCENE_DEFINITIONS = """
 ST1_poster_sms_social：海报、营销短信、朋友圈或社交平台的短文案，通常篇幅短、单向传播、带行动号召。
 ST2_live_short_video：直播、短视频脚本、主播或口播话术，常含镜头、主播、直播间、小黄车等表达。
-ST3_product_intro_detail：产品介绍、详情页、产品说明内容，重点描述产品要素、期限、费用、申赎和风险等级。
+ST3_product_intro_detail：产品介绍、详情页、产品说明内容，重点描述产品要素、功能、期限、费用、申赎和风险等级；若文本只陈述保险或产品功能且没有其他渠道载体标识，归入本类。
 ST4_meeting_material：产品说明会、客户答谢会等线下或线上会议材料，常含议程、主持、致辞、来宾和会议安排。
 ST5_training_telemarketing_callback：内部培训、电销、客服回访流程或标准话术，常含坐席、客户问答、异议处理和回访步骤。
 ST6_penalty_backend_fact：监管处罚决定、违法事实，或后台业务事实、系统记录、审批记录、交易流水、操作日志。
@@ -170,6 +170,48 @@ _RULES = (
         ),
         7.0,
         "出现后台业务事实或系统留痕",
+    ),
+    _Rule(
+        QueryScene.ST2_LIVE_SHORT_VIDEO,
+        re.compile(r"(?:短视频口播|短视频文案|主播台词|直播提纲|直播演示|镜头脚本)"),
+        7.5,
+        "出现短视频或直播内容载体标识",
+    ),
+    _Rule(
+        QueryScene.ST3_PRODUCT_INTRO_DETAIL,
+        re.compile(
+            r"(?:保险详情|险种详情|产品宣传页|保障详情|对比宣传页|产品对比页|投保本产品)"
+        ),
+        7.5,
+        "出现产品详情或产品页面标识",
+    ),
+    _Rule(
+        QueryScene.ST4_MEETING_MATERIAL,
+        re.compile(
+            r"(?:说明会|客户交流会|养老规划(?:会讲义|讲座)|社区养老讲座|讲师页|"
+            r"讲师备注|会议讲义|活动执行单)"
+        ),
+        7.5,
+        "出现说明会、讲座或会议讲师材料标识",
+    ),
+    _Rule(
+        QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        re.compile(
+            r"(?:回访操作提示|回访质检|电销标准话术|电销脚本|电话促成脚本|电话销售安排|"
+            r"销售培训|内部培训|合规异议处理|坐席整改|标准应答)"
+        ),
+        7.5,
+        "出现培训、电销或回访流程标识",
+    ),
+    _Rule(
+        QueryScene.ST6_PENALTY_BACKEND_FACT,
+        re.compile(
+            r"(?:财务凭证|系统抽查记录|后台审核记录|后台抽查|系统日志|业务后台|"
+            r"稽核发现|审计发现|抽查发现|回访质检发现|质检记录显示|"
+            r"佣金流水|承保记录|业务台账|审批留痕)"
+        ),
+        8.5,
+        "出现财务、系统、审计或后台事实记录标识",
     ),
 )
 

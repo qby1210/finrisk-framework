@@ -40,6 +40,8 @@ class SparseRetrievalIndex:
         self.documents = tuple(documents)
         self._document_lengths: list[int] = []
         self._postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        self._vector_idf: dict[str, float] = {}
+        self._vector_norms: list[float] = []
         self._build()
 
     def _build(self) -> None:
@@ -64,6 +66,23 @@ class SparseRetrievalIndex:
         self._average_document_length = (
             total_length / len(self.documents) if self.documents else 0.0
         )
+        self._build_vector_statistics()
+
+    def _build_vector_statistics(self) -> None:
+        """复用倒排表构建本地 TF-IDF 向量通道，不额外加载模型权重。"""
+
+        document_count = len(self.documents)
+        norm_squares = [0.0] * document_count
+        if not document_count:
+            self._vector_norms = norm_squares
+            return
+        for term, postings in self._postings.items():
+            idf = math.log((document_count + 1) / (len(postings) + 1)) + 1.0
+            self._vector_idf[term] = idf
+            for document_index, frequency in postings:
+                weight = (1.0 + math.log(frequency)) * idf
+                norm_squares[document_index] += weight * weight
+        self._vector_norms = [math.sqrt(value) for value in norm_squares]
 
     def search(self, query: str, *, top_k: int = 50) -> tuple[SparseSearchHit, ...]:
         """返回文档级候选；同案例聚合由应用层完成。"""
@@ -105,4 +124,53 @@ class SparseRetrievalIndex:
                 rank=rank,
             )
             for rank, (document_index, raw_score) in enumerate(ranked, start=1)
+        )
+
+    def vector_search(self, query: str, *, top_k: int = 50) -> tuple[SparseSearchHit, ...]:
+        """使用同一中文词元空间执行归一化 TF-IDF 余弦向量召回。"""
+
+        if not query.strip():
+            raise ValueError("检索文字不能为空")
+        if top_k <= 0:
+            raise ValueError("top_k 必须大于 0")
+        frequencies = Counter(chinese_unigram_bigram(query))
+        query_weights: dict[str, float] = {}
+        query_norm_square = 0.0
+        for term, frequency in frequencies.items():
+            idf = self._vector_idf.get(term)
+            if idf is None:
+                continue
+            weight = (1.0 + math.log(frequency)) * idf
+            query_weights[term] = weight
+            query_norm_square += weight * weight
+        if not query_weights or query_norm_square <= 0:
+            return ()
+
+        dot_products: dict[int, float] = defaultdict(float)
+        for term, query_weight in query_weights.items():
+            idf = self._vector_idf[term]
+            for document_index, frequency in self._postings[term]:
+                document_weight = (1.0 + math.log(frequency)) * idf
+                dot_products[document_index] += query_weight * document_weight
+
+        query_norm = math.sqrt(query_norm_square)
+        cosine_scores = {
+            document_index: dot_product
+            / (query_norm * self._vector_norms[document_index])
+            * math.sqrt(self.documents[document_index].weight)
+            for document_index, dot_product in dot_products.items()
+            if self._vector_norms[document_index] > 0
+        }
+        ranked = heapq.nlargest(
+            min(top_k, len(cosine_scores)),
+            cosine_scores.items(),
+            key=lambda item: (item[1], -item[0]),
+        )
+        return tuple(
+            SparseSearchHit(
+                document=self.documents[document_index],
+                score=max(0.0, min(1.0, score)),
+                rank=rank,
+            )
+            for rank, (document_index, score) in enumerate(ranked, start=1)
         )

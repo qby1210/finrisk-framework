@@ -1,0 +1,1743 @@
+{
+  "schema_version": "real_query_evaluation_v1",
+  "mode": "full",
+  "gold_path": "tests\\data\\real_query_gold.json",
+  "ignored_outputs": [
+    "matched_cases",
+    "case_retrieval_answers"
+  ],
+  "metrics": {
+    "sample_count": 21,
+    "label_count": 27,
+    "supported_label_count": 14,
+    "micro": {
+      "tp": 34,
+      "fp": 37,
+      "fn": 39,
+      "precision": 0.4788732394366197,
+      "recall": 0.4657534246575342,
+      "f1": 0.4722222222222222
+    },
+    "macro_supported": {
+      "precision": 0.553409090909091,
+      "recall": 0.515093537414966,
+      "f1": 0.42807866736438166
+    },
+    "samples_average": {
+      "precision": 0.5233371126228269,
+      "recall": 0.5105820105820106,
+      "f1": 0.49363189720332584
+    },
+    "exact_match_ratio": 0.19047619047619047,
+    "hamming_loss": 0.13403880070546736,
+    "binary_risk_detection": {
+      "tp": 16,
+      "fp": 0,
+      "fn": 2,
+      "precision": 1.0,
+      "recall": 0.8888888888888888,
+      "f1": 0.9411764705882353,
+      "tn": 3,
+      "accuracy": 0.9047619047619048
+    },
+    "per_label": [
+      {
+        "tp": 1,
+        "fp": 1,
+        "fn": 5,
+        "precision": 0.5,
+        "recall": 0.16666666666666666,
+        "f1": 0.25,
+        "label": "欺骗投保人",
+        "support": 6,
+        "predicted": 2
+      },
+      {
+        "tp": 5,
+        "fp": 5,
+        "fn": 3,
+        "precision": 0.5,
+        "recall": 0.625,
+        "f1": 0.5555555555555556,
+        "label": "销售误导",
+        "support": 8,
+        "predicted": 10
+      },
+      {
+        "tp": 1,
+        "fp": 7,
+        "fn": 0,
+        "precision": 0.125,
+        "recall": 1.0,
+        "f1": 0.2222222222222222,
+        "label": "夸大收益",
+        "support": 1,
+        "predicted": 8
+      },
+      {
+        "tp": 4,
+        "fp": 0,
+        "fn": 10,
+        "precision": 1.0,
+        "recall": 0.2857142857142857,
+        "f1": 0.4444444444444445,
+        "label": "虚假宣传",
+        "support": 14,
+        "predicted": 4
+      },
+      {
+        "tp": 2,
+        "fp": 3,
+        "fn": 1,
+        "precision": 0.4,
+        "recall": 0.6666666666666666,
+        "f1": 0.5,
+        "label": "合同外利益",
+        "support": 3,
+        "predicted": 5
+      },
+      {
+        "tp": 3,
+        "fp": 8,
+        "fn": 0,
+        "precision": 0.2727272727272727,
+        "recall": 1.0,
+        "f1": 0.42857142857142855,
+        "label": "赠送利益",
+        "support": 3,
+        "predicted": 11
+      },
+      {
+        "tp": 0,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "回扣返佣",
+        "support": 0,
+        "predicted": 2
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "产品说明会违规",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "培训材料违规",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "回访违规",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "电销违规",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 1,
+        "fp": 1,
+        "fn": 3,
+        "precision": 0.5,
+        "recall": 0.25,
+        "f1": 0.3333333333333333,
+        "label": "不当比较",
+        "support": 4,
+        "predicted": 2
+      },
+      {
+        "tp": 1,
+        "fp": 0,
+        "fn": 1,
+        "precision": 1.0,
+        "recall": 0.5,
+        "f1": 0.6666666666666666,
+        "label": "贬低竞品",
+        "support": 2,
+        "predicted": 1
+      },
+      {
+        "tp": 9,
+        "fp": 1,
+        "fn": 7,
+        "precision": 0.9,
+        "recall": 0.5625,
+        "f1": 0.6923076923076923,
+        "label": "绝对化表述",
+        "support": 16,
+        "predicted": 10
+      },
+      {
+        "tp": 1,
+        "fp": 3,
+        "fn": 0,
+        "precision": 0.25,
+        "recall": 1.0,
+        "f1": 0.4,
+        "label": "承诺收益",
+        "support": 1,
+        "predicted": 4
+      },
+      {
+        "tp": 0,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "保证收益",
+        "support": 0,
+        "predicted": 1
+      },
+      {
+        "tp": 1,
+        "fp": 0,
+        "fn": 2,
+        "precision": 1.0,
+        "recall": 0.3333333333333333,
+        "f1": 0.5,
+        "label": "弱化风险提示",
+        "support": 3,
+        "predicted": 1
+      },
+      {
+        "tp": 1,
+        "fp": 1,
+        "fn": 3,
+        "precision": 0.5,
+        "recall": 0.25,
+        "f1": 0.3333333333333333,
+        "label": "隐瞒重要信息",
+        "support": 4,
+        "predicted": 2
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "虚构收益率",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 4,
+        "fp": 1,
+        "fn": 3,
+        "precision": 0.8,
+        "recall": 0.5714285714285714,
+        "f1": 0.6666666666666666,
+        "label": "诱导投保",
+        "support": 7,
+        "predicted": 5
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "避债避税",
+        "support": 1,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "虚列费用套取资金",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "代理人管理不到位",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 3,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "委托无资质机构销售",
+        "support": 0,
+        "predicted": 3
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "未按规定使用费率条款",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "客户信息不真实",
+        "support": 0,
+        "predicted": 0
+      },
+      {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "label": "其他",
+        "support": 0,
+        "predicted": 0
+      }
+    ],
+    "failed_sample_count": 0
+  },
+  "samples": [
+    {
+      "sample_id": "XHS-01",
+      "title": "众安员工守护保团意险",
+      "source_start_line": 2,
+      "source_end_line": 28,
+      "text_sha256": "fd42318a5c5e99ce723b0fec5a8f828e6b983570cdaa3dca49347b8af4cbe6f5",
+      "gold_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "predicted_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "missing_labels": [],
+      "extra_labels": [],
+      "exact_match": true,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST3_product_intro_detail",
+      "overall_score": 0.8154,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_3c893d9cb93f28438b22_s0014",
+          "text": "*保单年度内，100元/天，次免赔3天，每次事故90天，最高180天\n超大保障范围，超快理赔流程，从不扯皮，保你买个安心。",
+          "risk_score": 0.8154,
+          "risk_labels": [
+            "虚假宣传",
+            "绝对化表述"
+          ],
+          "reasoning": "使用'从不扯皮'等绝对化承诺，且'超大保障范围'等表述夸大，涉嫌虚假宣传。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-02",
+      "title": "成人综合意外险求助帖",
+      "source_start_line": 30,
+      "source_end_line": 42,
+      "text_sha256": "45dc59be52c7d23737bf007787fe26129cea8cb15001d6ed1c2c5a3dd8fd268e",
+      "gold_labels": [],
+      "predicted_labels": [],
+      "missing_labels": [],
+      "extra_labels": [],
+      "exact_match": true,
+      "gold_is_risky": false,
+      "predicted_is_risky": false,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.1534,
+      "overall_level": "none",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": []
+    },
+    {
+      "sample_id": "XHS-03",
+      "title": "大公司保险推荐",
+      "source_start_line": 44,
+      "source_end_line": 82,
+      "text_sha256": "7e5806792afbdc0fd79e40e0f0b133eeed6195e825348967746c6c6e0406dc2c",
+      "gold_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "夸大收益",
+        "虚假宣传",
+        "不当比较",
+        "贬低竞品",
+        "绝对化表述",
+        "承诺收益",
+        "避债避税"
+      ],
+      "predicted_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "夸大收益",
+        "虚假宣传",
+        "承诺收益"
+      ],
+      "missing_labels": [
+        "不当比较",
+        "贬低竞品",
+        "绝对化表述",
+        "避债避税"
+      ],
+      "extra_labels": [],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.8384,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_bf313846527cd9566218_s0003",
+          "text": "🙋🏻‍♀️最近好多姐妹想为自己或宝宝买保险来咨询我，我熬夜整理了一周，终于选出性价比高，保障全的大公司产品，帮姐妹们买对不踩坑\n大公司有国家背书资金保障，安全性是小公司不能比的，要买就要买大公司的产品",
+          "risk_score": 0.8384,
+          "risk_labels": [
+            "欺骗投保人",
+            "销售误导",
+            "虚假宣传"
+          ],
+          "reasoning": "宣称大公司安全性是小公司不能比的，属于不当比较和虚假宣传，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_bf313846527cd9566218_s0005",
+          "text": "🔥#中国人保金医保3号\n20年保证续保\n住院0免赔，1元起赔\n205种外购药，家庭单z高85折\n适合60岁以下追求长期保障，全家一起投更划算",
+          "risk_score": 0.3491,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益"
+          ],
+          "reasoning": "宣传'z高85折'可能涉及赠送利益或夸大优惠，但未明确违规。"
+        },
+        {
+          "sentence_id": "query_bf313846527cd9566218_s0007",
+          "text": "🔥#中国人保金医保3号少儿中高端\n保证续保至19周岁，0天也保\n0免赔，意外、肺炎、中耳炎等能保门(急)诊\n大小病特需/私立也能报\n适合小朋友，多娃一起投折扣高",
+          "risk_score": 0.406,
+          "risk_labels": [
+            "销售误导"
+          ],
+          "reasoning": "宣传'0免赔'、'大小病特需/私立也能报'可能夸大保障范围，需核实条款。"
+        },
+        {
+          "sentence_id": "query_bf313846527cd9566218_s0010",
+          "text": "🔥#中国人保民享福\n每年z高节税45%，国家发钱\nz高11%复利，现价写入合同\n高发特疾z高赔320万，终身重疾",
+          "risk_score": 0.5869,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益",
+            "承诺收益"
+          ],
+          "reasoning": "宣传'z高11%复利'、'现价写入合同'可能夸大收益，且'国家发钱'表述不准确。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-04",
+      "title": "民医保长期医疗介绍",
+      "source_start_line": 84,
+      "source_end_line": 107,
+      "text_sha256": "39a270cc237e21e63d8488006d0c705d8b6a042bc1b49c8d6e081cbcf775e88d",
+      "gold_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "夸大收益",
+        "合同外利益",
+        "赠送利益",
+        "回扣返佣",
+        "不当比较",
+        "绝对化表述"
+      ],
+      "missing_labels": [
+        "虚假宣传"
+      ],
+      "extra_labels": [
+        "销售误导",
+        "夸大收益",
+        "合同外利益",
+        "赠送利益",
+        "回扣返佣",
+        "不当比较"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.6455,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_895e7e3a8815556dc389_s0008",
+          "text": "✔性价比高：30周岁女生，一年226元，一顿火锅钱都不到，这么性价比高的产品全市场都极其罕见",
+          "risk_score": 0.5279,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益",
+            "不当比较"
+          ],
+          "reasoning": "使用“全市场都极其罕见”等绝对化表述，且与火锅钱比较，可能夸大性价比。"
+        },
+        {
+          "sentence_id": "query_895e7e3a8815556dc389_s0010",
+          "text": "✔保额高，大病不愁：责任内医疗费用全年z 高可报400W，不限社保，100%报销",
+          "risk_score": 0.6336,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "“100%报销”可能绝对化，需结合条款，存在风险。"
+        },
+        {
+          "sentence_id": "query_895e7e3a8815556dc389_s0015",
+          "text": "找小保贝投保，多人还能享受折扣\n2人一起买可享95折、3人可享9折，4人及以上投保可享85折优惠\n有任何问题，官方客服可以回复你哦~\n投保再也不怕抓瞎了！",
+          "risk_score": 0.6455,
+          "risk_labels": [
+            "合同外利益",
+            "赠送利益",
+            "回扣返佣"
+          ],
+          "reasoning": "多人投保折扣可能构成合同外利益或变相返佣，需核实是否合规。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-05",
+      "title": "民医保少儿中高端医疗理赔帖",
+      "source_start_line": 109,
+      "source_end_line": 150,
+      "text_sha256": "dd97d90df2f1ef46680245f00c90fb136353815e4cc3cb56cc770207f84bb9d6",
+      "gold_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "predicted_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "夸大收益",
+        "绝对化表述"
+      ],
+      "missing_labels": [
+        "虚假宣传"
+      ],
+      "extra_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "夸大收益"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST3_product_intro_detail",
+      "overall_score": 0.645,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_c23c2f26fc03f05de9e9_s0011",
+          "text": "✅享特需医疗\n不用排队，不用等床位，全程VIP服务。",
+          "risk_score": 0.5256,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益"
+          ],
+          "reasoning": "宣称'全程VIP服务'可能夸大服务范围，但未明确具体服务内容，存在误导风险。"
+        },
+        {
+          "sentence_id": "query_c23c2f26fc03f05de9e9_s0012",
+          "text": "保险公司直接跟医院结算，不用自己掏一分钱",
+          "risk_score": 0.5898,
+          "risk_labels": [
+            "欺骗投保人",
+            "销售误导"
+          ],
+          "reasoning": "宣称'不用自己掏一分钱'可能绝对化，实际理赔可能有限制，存在欺骗风险。"
+        },
+        {
+          "sentence_id": "query_c23c2f26fc03f05de9e9_s0013",
+          "text": "✅特药保障给力\n院外恶性肿瘤特药保障高达400万，覆盖227种药品，支持保险公司直接结算\n（来源:《人保寿险关爱e生2.0少儿长期医疗保险(费率可调)(互联网专属)产品说明》人保寿险【2025】医疗保险026号)",
+          "risk_score": 0.3467,
+          "risk_labels": [],
+          "reasoning": "描述具体保障内容，有来源，无明显违规。"
+        },
+        {
+          "sentence_id": "query_c23c2f26fc03f05de9e9_s0014",
+          "text": "✅外购药械至高100%报销\n对于符合合同约定的外购药品及医疗器械费用，0免赔额，赔付比例至高100%，保额高达100万元\n（来源:人保寿险少儿外购药械费用医疗保险(互联网专属)(人保寿险[2025]医疗保险029 号))",
+          "risk_score": 0.645,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "使用'至高100%'可能绝对化，但有限定条件，风险中等。"
+        },
+        {
+          "sentence_id": "query_c23c2f26fc03f05de9e9_s0015",
+          "text": "❤理赔不套路\n这款民医保少儿医疗最贴心的点，就是完全贴合真实带娃场景：不卡小额理赔、不限制儿童常见病、理赔规则透明简单",
+          "risk_score": 0.4699,
+          "risk_labels": [
+            "销售误导"
+          ],
+          "reasoning": "宣称'不卡小额理赔'等可能夸大，但未具体说明，存在误导风险。"
+        },
+        {
+          "sentence_id": "query_c23c2f26fc03f05de9e9_s0016",
+          "text": "另外，民医保·少儿医疗（中高端）价格优惠，首年保费低至384元起，普通家庭也能负担得起。",
+          "risk_score": 0.277,
+          "risk_labels": [],
+          "reasoning": "描述价格优惠，无违规。"
+        },
+        {
+          "sentence_id": "query_c23c2f26fc03f05de9e9_s0017",
+          "text": "支持多孩投保，为2位子女投保享95折，为3位及以上子女投保至高享9折",
+          "risk_score": 0.3057,
+          "risk_labels": [],
+          "reasoning": "描述多孩投保折扣，属于正常促销，无违规。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-06",
+      "title": "民医保3.0宣传",
+      "source_start_line": 152,
+      "source_end_line": 188,
+      "text_sha256": "32b9045627a50e91001c2458c7afd32a485010cabc3a6b1d0eef85c312aae478",
+      "gold_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "赠送利益",
+        "绝对化表述",
+        "承诺收益",
+        "委托无资质机构销售"
+      ],
+      "missing_labels": [
+        "虚假宣传"
+      ],
+      "extra_labels": [
+        "销售误导",
+        "赠送利益",
+        "承诺收益",
+        "委托无资质机构销售"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST3_product_intro_detail",
+      "overall_score": 0.6308,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_09fbbb05bd982d5a8639_s0010",
+          "text": "年度报销上限400万，20年保证续保期内累计赔付至高可达800万，经社保报销后，至高给付比例100%\n（来源：人保寿险关爱e生2.0长期医疗保险(费率可调)(互联网专属)人保寿险[2024]医疗保险039号）",
+          "risk_score": 0.3534,
+          "risk_labels": [
+            "销售误导",
+            "绝对化表述",
+            "承诺收益"
+          ],
+          "reasoning": "文本描述保额和给付比例，无违规表述。"
+        },
+        {
+          "sentence_id": "query_09fbbb05bd982d5a8639_s0013",
+          "text": "✅外购药品器械至高100%报销\n对于符合合同约定的外购药品及外购医疗器械费用，赔付比例至高100%，保额高达100万元\n（来源：人保寿险外购药械费用医疗保险(互联网专属)人保寿险[2025]医疗保险013号）",
+          "risk_score": 0.6308,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "使用“至高100%”可能构成绝对化表述，但已注明来源和条件，风险中等。"
+        },
+        {
+          "sentence_id": "query_09fbbb05bd982d5a8639_s0014",
+          "text": "✅增值服务多又好 看病更省心\n包含住院垫付、重疾绿通、多学科会诊服务等，助力大家看病不用愁（增值服务可享受项目内容、要求可能调整，具体内容及标准以官方实际为准）",
+          "risk_score": 0.4691,
+          "risk_labels": [
+            "赠送利益",
+            "委托无资质机构销售"
+          ],
+          "reasoning": "提及增值服务可能被视为合同外利益，但已注明以官方实际为准，风险较低。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-07",
+      "title": "平安旅行险年卡",
+      "source_start_line": 190,
+      "source_end_line": 220,
+      "text_sha256": "9b69242073016f65d1e561c4cb567ab113bc21593837a33b22b8df1115f34ad6",
+      "gold_labels": [
+        "合同外利益",
+        "赠送利益",
+        "绝对化表述",
+        "诱导投保"
+      ],
+      "predicted_labels": [
+        "合同外利益",
+        "赠送利益"
+      ],
+      "missing_labels": [
+        "绝对化表述",
+        "诱导投保"
+      ],
+      "extra_labels": [],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.6488,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_c23c205a5cc20ef02536_s0008",
+          "text": "点击头像发送暗号【旅行年卡】了解更多详情～",
+          "risk_score": 0.2911,
+          "risk_labels": [
+            "合同外利益",
+            "赠送利益"
+          ],
+          "reasoning": "引导咨询，无利益承诺，无违规。"
+        },
+        {
+          "sentence_id": "query_c23c205a5cc20ef02536_s0009",
+          "text": "今天下单，有机会获得一个1000元的夏日出游大礼包哦",
+          "risk_score": 0.6488,
+          "risk_labels": [
+            "赠送利益"
+          ],
+          "reasoning": "承诺赠送大礼包，属于给予投保人合同外利益，违反监管规定。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-08",
+      "title": "众安雇主无忧保",
+      "source_start_line": 222,
+      "source_end_line": 270,
+      "text_sha256": "04d7483d535701efa461724a03e2278bb8cf3e8e2b92324565a56856ef04fafb",
+      "gold_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "夸大收益",
+        "诱导投保"
+      ],
+      "missing_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "extra_labels": [
+        "销售误导",
+        "夸大收益",
+        "诱导投保"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.5219,
+      "overall_level": "review",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_16e255093c146eb40bf5_s0018",
+          "text": "-\n✨ 小钱换大保障，性价比拉满\n以5人版为例，年保费900元/年，折合日保费只要2.47元/天！",
+          "risk_score": 0.5219,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益"
+          ],
+          "reasoning": "使用“小钱换大保障”“性价比拉满”等绝对化表述，可能夸大保障效果。"
+        },
+        {
+          "sentence_id": "query_16e255093c146eb40bf5_s0023",
+          "text": "没有保险难免碰上一些纠纷和官司，吃亏的还是自己的腰包。",
+          "risk_score": 0.5205,
+          "risk_labels": [
+            "诱导投保"
+          ],
+          "reasoning": "通过描述无保险的负面后果（纠纷、官司、损失）来促使投保，属于诱导投保。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-09",
+      "title": "旅行险提前购买科普",
+      "source_start_line": 272,
+      "source_end_line": 294,
+      "text_sha256": "d3f96064bab277da7f4512a1ae63a4debe3b6328bec251109781bfff7ff7626e",
+      "gold_labels": [
+        "不当比较",
+        "贬低竞品",
+        "绝对化表述"
+      ],
+      "predicted_labels": [
+        "合同外利益",
+        "赠送利益",
+        "贬低竞品"
+      ],
+      "missing_labels": [
+        "不当比较",
+        "绝对化表述"
+      ],
+      "extra_labels": [
+        "合同外利益",
+        "赠送利益"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.6454,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_4ad2f6b9815f49e7b742_s0011",
+          "text": "🏖️ 这款平安行 · 旅行险年卡（节日版），正好解决“总忘了提前买”的问题，秒杀市场上其他的无良产品",
+          "risk_score": 0.6454,
+          "risk_labels": [
+            "贬低竞品"
+          ],
+          "reasoning": "使用'秒杀市场上其他的无良产品'贬低竞争对手，构成不当比较。"
+        },
+        {
+          "sentence_id": "query_4ad2f6b9815f49e7b742_s0014",
+          "text": "❤点击头像发送暗号【旅行险年卡】，告诉我你的目的地，快速获取1v1保障方案！",
+          "risk_score": 0.3052,
+          "risk_labels": [
+            "合同外利益",
+            "赠送利益"
+          ],
+          "reasoning": "邀请咨询，未提及利益赠送，无风险。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-10",
+      "title": "蓝医保官方平台宣传",
+      "source_start_line": 296,
+      "source_end_line": 324,
+      "text_sha256": "b23cef7d349f98caa16a712db991761b321a90251337ddc9f9d7cc4aec1ea75d",
+      "gold_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "predicted_labels": [
+        "合同外利益",
+        "赠送利益",
+        "回扣返佣",
+        "绝对化表述"
+      ],
+      "missing_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "虚假宣传"
+      ],
+      "extra_labels": [
+        "合同外利益",
+        "赠送利益",
+        "回扣返佣"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST6_penalty_backend_fact",
+      "overall_score": 0.7301,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_5665a81016179e0975f3_s0003",
+          "text": "AI的推荐，就是最好的保障，是我们最优质的证明\n💡 【官方平台6大优势】",
+          "risk_score": 0.7301,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "使用“最好”“最优质”等绝对化用语，可能构成绝对化表述。"
+        },
+        {
+          "sentence_id": "query_5665a81016179e0975f3_s0004",
+          "text": "✅ 产品100%官方正品，条款透明无隐藏坑",
+          "risk_score": 0.6186,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "宣称“100%官方正品”“无隐藏坑”等绝对化表述，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_5665a81016179e0975f3_s0009",
+          "text": "💰 直接对标保险公司，❌拒绝中间商\n🚫 拒绝捆绑销售/返佣陷阱（银保监会盯着呢！）",
+          "risk_score": 0.638,
+          "risk_labels": [
+            "合同外利益",
+            "赠送利益",
+            "回扣返佣"
+          ],
+          "reasoning": "提及“拒绝返佣陷阱”，但可能暗示存在返佣现象，且“银保监会盯着”可能涉及不当比较。"
+        },
+        {
+          "sentence_id": "query_5665a81016179e0975f3_s0011",
+          "text": "🎁 体检卡、保费折扣、健康管理服务…这些羊毛你要成为保司官方的会员哦！",
+          "risk_score": 0.6471,
+          "risk_labels": [
+            "赠送利益"
+          ],
+          "reasoning": "文本提及体检卡、保费折扣、健康管理服务等，暗示成为会员可获赠利益，可能构成给予投保人合同外利益，但未明确指向具体保险产品，故风险较高但非必然违规。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-11",
+      "title": "少儿重疾险推荐",
+      "source_start_line": 326,
+      "source_end_line": 367,
+      "text_sha256": "41e67b198fa52c042d8c017a7123139835c4994aad69441bac06b97b8dc691ae",
+      "gold_labels": [
+        "销售误导",
+        "虚假宣传",
+        "绝对化表述",
+        "诱导投保"
+      ],
+      "predicted_labels": [
+        "赠送利益",
+        "绝对化表述",
+        "委托无资质机构销售"
+      ],
+      "missing_labels": [
+        "销售误导",
+        "虚假宣传",
+        "诱导投保"
+      ],
+      "extra_labels": [
+        "赠送利益",
+        "委托无资质机构销售"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST3_product_intro_detail",
+      "overall_score": 0.6306,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_ecb486dd04924a7eff15_s0010",
+          "text": "✅ 20种少儿特定疾病——赔付100%基本保额\n包括：白血病、淋巴瘤、严重哮喘、严重脊髓灰质炎等",
+          "risk_score": 0.2833,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "句子描述保险责任，无具体风险描述。"
+        },
+        {
+          "sentence_id": "query_ecb486dd04924a7eff15_s0011",
+          "text": "✅ 10种少儿罕见疾病——赔付100%基本保额\n包括：严重多发性硬化、肺淋巴管肌瘤病、脑型疟疾、肺泡子菌肺炎等",
+          "risk_score": 0.6306,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "使用'✅'和'10种'等绝对化表述，可能夸大保障范围，但未明确违规。"
+        },
+        {
+          "sentence_id": "query_ecb486dd04924a7eff15_s0019",
+          "text": "少儿专属健管服务超省心\n投保后享15项增值服务，含少儿专项服务：",
+          "risk_score": 0.4669,
+          "risk_labels": [
+            "赠送利益",
+            "委托无资质机构销售"
+          ],
+          "reasoning": "提及'15项增值服务'，可能涉及赠送利益，但需确认是否合同内。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-12",
+      "title": "免健告长期医疗险",
+      "source_start_line": 369,
+      "source_end_line": 412,
+      "text_sha256": "59f8c6e498a47ec0c17baac17ebd91e74044594899eadac5fbb3f747d1350d43",
+      "gold_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "虚假宣传",
+        "绝对化表述",
+        "弱化风险提示",
+        "隐瞒重要信息",
+        "诱导投保"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "夸大收益",
+        "虚假宣传",
+        "赠送利益",
+        "绝对化表述",
+        "承诺收益",
+        "保证收益",
+        "隐瞒重要信息",
+        "诱导投保"
+      ],
+      "missing_labels": [
+        "欺骗投保人",
+        "弱化风险提示"
+      ],
+      "extra_labels": [
+        "夸大收益",
+        "赠送利益",
+        "承诺收益",
+        "保证收益"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.7099,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0001",
+          "text": "有结节慢病也能买的医疗险！",
+          "risk_score": 0.5875,
+          "risk_labels": [
+            "销售误导"
+          ],
+          "reasoning": "宣称有结节慢病也能买，但未说明具体条件和限制，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0002",
+          "text": "免健告\n普通人买医疗险最大的痛点就是因为体检一堆小异常和慢病，直接被拒保、除外。",
+          "risk_score": 0.6492,
+          "risk_labels": [
+            "销售误导",
+            "隐瞒重要信息"
+          ],
+          "reasoning": "强调免健告，但未提及健康告知的例外或理赔限制，可能隐瞒重要信息。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0003",
+          "text": "结节、三高、糖尿病、乙肝…全都过不了审😭",
+          "risk_score": 0.4672,
+          "risk_labels": [
+            "销售误导"
+          ],
+          "reasoning": "描述普通人买医疗险的痛点，但未直接涉及产品，风险较低。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0004",
+          "text": "今天必须安利这款医疗险卷王✨\n太平洋【长期医疗险免健告10年期】\n直接打破所有投保限制，堪称非标体福音！！",
+          "risk_score": 0.6461,
+          "risk_labels": [
+            "销售误导",
+            "绝对化表述"
+          ],
+          "reasoning": "使用“卷王”“打破所有投保限制”“非标体福音”等绝对化表述，可能夸大产品优势。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0005",
+          "text": "✅ 0健康告知！",
+          "risk_score": 0.6882,
+          "risk_labels": [
+            "销售误导",
+            "隐瞒重要信息"
+          ],
+          "reasoning": "宣称“0健康告知”，但未说明健康告知的例外或理赔限制，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0006",
+          "text": "不问任何体检异常\n0-70周岁闭眼投，不用核对体检报告、不问结节/三高/乙肝\n不管身体有小毛病还是慢病，再也不用因为身体原因买不上保险！",
+          "risk_score": 0.7099,
+          "risk_labels": [
+            "销售误导",
+            "隐瞒重要信息"
+          ],
+          "reasoning": "宣称“不问任何体检异常”“闭眼投”，但未提及健康告知的例外或理赔限制，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0007",
+          "text": "✅ 既往症可赔！",
+          "risk_score": 0.6207,
+          "risk_labels": [
+            "销售误导",
+            "隐瞒重要信息"
+          ],
+          "reasoning": "宣称“既往症可赔”，但未说明具体条件和限制，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0008",
+          "text": "打破行业惯例\n这款常见慢病全都能正常理赔：\n高血压、2型糖尿病、甲状腺/乳腺/肺结节、哮喘等\n之前被拒保、除外承保的宝子，直接冲！",
+          "risk_score": 0.6492,
+          "risk_labels": [
+            "销售误导",
+            "隐瞒重要信息"
+          ],
+          "reasoning": "宣称常见慢病全都能正常理赔，但未说明具体条件和限制，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0009",
+          "text": "✅ 白纸黑字10年保证续保\n条款写入合同！",
+          "risk_score": 0.5211,
+          "risk_labels": [
+            "销售误导"
+          ],
+          "reasoning": "宣称“白纸黑字10年保证续保”，但未说明续保条件，可能误导消费者。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0010",
+          "text": "超级安心！",
+          "risk_score": 0.2132,
+          "risk_labels": [],
+          "reasoning": "主观评价，无具体风险。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0011",
+          "text": "不管中途生病理赔、身体变差，哪怕产品停售、下架，10年保障都会稳稳锁住，不用每年重新核保，长期兜底安全感直接拉满！",
+          "risk_score": 0.5276,
+          "risk_labels": [
+            "销售误导",
+            "承诺收益",
+            "保证收益"
+          ],
+          "reasoning": "使用'稳稳锁住'、'长期兜底安全感'等绝对化表述，暗示保证收益，可能构成承诺收益或保证收益。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0012",
+          "text": "✅ 800万超高保额全覆盖\n保额配置直接拉满，看病无压力",
+          "risk_score": 0.3357,
+          "risk_labels": [],
+          "reasoning": "描述保额覆盖，未发现明显违规表述，但需注意夸大宣传风险。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0013",
+          "text": "▪医保内外医疗各300万",
+          "risk_score": 0.2703,
+          "risk_labels": [],
+          "reasoning": "仅陈述保额数字，无违规表述。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0014",
+          "text": "▪质子重离子300万",
+          "risk_score": 0.2788,
+          "risk_labels": [],
+          "reasoning": "仅陈述保额数字，无违规表述。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0015",
+          "text": "▪162种特药，大病完全扛得住！",
+          "risk_score": 0.3366,
+          "risk_labels": [],
+          "reasoning": "描述特药数量，未发现明显违规，但需注意夸大宣传风险。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0016",
+          "text": "30岁左右每年仅需几百块，性价比天花板！",
+          "risk_score": 0.4629,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益"
+          ],
+          "reasoning": "使用'性价比天花板'等绝对化表述，可能夸大产品收益或优势。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0017",
+          "text": "百元搞定全年保障",
+          "risk_score": 0.3125,
+          "risk_labels": [],
+          "reasoning": "描述价格，未发现明显违规，但需注意夸大宣传风险。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0018",
+          "text": "💡全家投保更划算\n2人投保：9.5折\n3人投保：9折\n4人及以上：8.5折\n给自己、配偶、父母配齐，越买越省！",
+          "risk_score": 0.3993,
+          "risk_labels": [
+            "赠送利益"
+          ],
+          "reasoning": "提及折扣优惠，可能构成赠送利益或合同外利益。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0020",
+          "text": "市面上同款超多\n但同时满足：免健告+既往症可赔+10年保证续保的是全网独一份的稀缺保障✅",
+          "risk_score": 0.5879,
+          "risk_labels": [
+            "虚假宣传",
+            "绝对化表述"
+          ],
+          "reasoning": "使用'全网独一份'等绝对化表述，可能构成虚假宣传或绝对化表述。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0021",
+          "text": "身体有异常、买不上常规医疗险\n或者想给爸妈省心配置长期医疗的宝子\n直接锁死这一款！",
+          "risk_score": 0.3486,
+          "risk_labels": [
+            "诱导投保"
+          ],
+          "reasoning": "使用“直接锁死”等绝对化、催促性用语，可能诱导投保人冲动购买，但未涉及具体收益或保障承诺，风险较低。"
+        },
+        {
+          "sentence_id": "query_a1a3c73b5853b67c24f1_s0022",
+          "text": "有任何投保问题，官方客服全程解答\n再也不用盲目投保踩坑！",
+          "risk_score": 0.2668,
+          "risk_labels": [],
+          "reasoning": "宣传官方客服全程解答，未发现虚假或误导内容，但“再也不用盲目投保踩坑”可能隐含夸大服务效果，风险较低。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-13",
+      "title": "微医保普惠版体验",
+      "source_start_line": 414,
+      "source_end_line": 427,
+      "text_sha256": "b3bc9b00284624af90ae281cf84a6e1696c143966f5bc0049ff3afeb5a4f7799",
+      "gold_labels": [
+        "绝对化表述"
+      ],
+      "predicted_labels": [],
+      "missing_labels": [
+        "绝对化表述"
+      ],
+      "extra_labels": [],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": false,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.1699,
+      "overall_level": "none",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": []
+    },
+    {
+      "sample_id": "XHS-14",
+      "title": "微医保理赔到账记录",
+      "source_start_line": 429,
+      "source_end_line": 444,
+      "text_sha256": "bf6871eca27a94541bf0df412f429a7a853b41a1c996f19958b3db37cbeb08dc",
+      "gold_labels": [
+        "合同外利益",
+        "赠送利益",
+        "诱导投保"
+      ],
+      "predicted_labels": [
+        "合同外利益",
+        "赠送利益",
+        "绝对化表述"
+      ],
+      "missing_labels": [
+        "诱导投保"
+      ],
+      "extra_labels": [
+        "绝对化表述"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.7081,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_4b9c6c4278a937fb83f8_s0002",
+          "text": "微信买的百万医疗真能赔！",
+          "risk_score": 0.2828,
+          "risk_labels": [],
+          "reasoning": "陈述微信购买产品可理赔，但未提及具体险种和条件，可能隐含保证，但文本本身无明确误导。"
+        },
+        {
+          "sentence_id": "query_4b9c6c4278a937fb83f8_s0007",
+          "text": "它是责任内0元起赔，没有理赔门槛💟，0-2万区间至高能报销30%，2万以上至高能100%报销。",
+          "risk_score": 0.6204,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "使用“至高”等绝对化表述，可能夸大保障范围。"
+        },
+        {
+          "sentence_id": "query_4b9c6c4278a937fb83f8_s0013",
+          "text": "最近发现他们做了个小红书专属活动，只要在点击下方链接投保，就会赠送 360 元保额的门诊报销金，还有更多隐藏福利等待解锁！",
+          "risk_score": 0.7081,
+          "risk_labels": [
+            "合同外利益",
+            "赠送利益"
+          ],
+          "reasoning": "明确提及投保赠送门诊报销金，属于合同外利益，违反监管规定。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-15",
+      "title": "老年意外险体验",
+      "source_start_line": 446,
+      "source_end_line": 459,
+      "text_sha256": "a48306ae5bdbd7e19a37c2f8b673b5295933cfa59c4f951ecfcc5dca43307a1f",
+      "gold_labels": [],
+      "predicted_labels": [],
+      "missing_labels": [],
+      "extra_labels": [],
+      "exact_match": true,
+      "gold_is_risky": false,
+      "predicted_is_risky": false,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.17,
+      "overall_level": "none",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": []
+    },
+    {
+      "sample_id": "XHS-16",
+      "title": "好医保少儿自动垫交说法",
+      "source_start_line": 461,
+      "source_end_line": 474,
+      "text_sha256": "10cc443098cd8f19de39ef9139b866cac46d81134882fc98aa90354eeb9c6066",
+      "gold_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "虚假宣传",
+        "隐瞒重要信息"
+      ],
+      "predicted_labels": [],
+      "missing_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "虚假宣传",
+        "隐瞒重要信息"
+      ],
+      "extra_labels": [],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": false,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.17,
+      "overall_level": "none",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": []
+    },
+    {
+      "sample_id": "XHS-17",
+      "title": "众民保中高端医疗险",
+      "source_start_line": 476,
+      "source_end_line": 503,
+      "text_sha256": "fdeb0ecc7c9b0ca9f2abb1ad6177ac26557298bd327c022feee1d5f5530b852c",
+      "gold_labels": [
+        "虚假宣传",
+        "不当比较",
+        "绝对化表述",
+        "诱导投保"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "夸大收益",
+        "赠送利益",
+        "不当比较",
+        "隐瞒重要信息",
+        "诱导投保"
+      ],
+      "missing_labels": [
+        "虚假宣传",
+        "绝对化表述"
+      ],
+      "extra_labels": [
+        "销售误导",
+        "夸大收益",
+        "赠送利益",
+        "隐瞒重要信息"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST2_live_short_video",
+      "overall_score": 0.5864,
+      "overall_level": "review",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_29a7f3cd49c3ae6c1534_s0003",
+          "text": "【众安众民保中高端医疗险】🙋♀️\n在上线当日保费规模就突破了500万‼（来源于众安运营数据）不管你是高血压（无并发症）、糖尿病（无并发症），还是其他结节（良性）等慢性病，符合条件统统都能正常投保！",
+          "risk_score": 0.3485,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益"
+          ],
+          "reasoning": "提及“上线当日保费规模突破500万”可能暗示产品热销，但未直接承诺收益，风险较低。"
+        },
+        {
+          "sentence_id": "query_29a7f3cd49c3ae6c1534_s0005",
+          "text": "对比市面上很多的医疗险一听你有病史就直接拒保\n但是众民保丝毫不怕，直接给你的健康保驾护航！",
+          "risk_score": 0.2895,
+          "risk_labels": [
+            "不当比较"
+          ],
+          "reasoning": "与“市面上很多医疗险”对比，但未具体点名，且未贬低竞品，风险较低。"
+        },
+        {
+          "sentence_id": "query_29a7f3cd49c3ae6c1534_s0011",
+          "text": "💁♀️120万的抗癌针责任内也能赔。",
+          "risk_score": 0.489,
+          "risk_labels": [
+            "销售误导"
+          ],
+          "reasoning": "宣称120万抗癌针责任内也能赔，但未说明具体责任范围，可能夸大保障，存在销售误导风险。"
+        },
+        {
+          "sentence_id": "query_29a7f3cd49c3ae6c1534_s0012",
+          "text": "💁♀️600万的医疗赔付总限额保障。",
+          "risk_score": 0.4602,
+          "risk_labels": [
+            "销售误导",
+            "隐瞒重要信息"
+          ],
+          "reasoning": "仅提及600万医疗赔付总限额，未说明免赔额、赔付比例等关键限制，可能隐瞒重要信息。"
+        },
+        {
+          "sentence_id": "query_29a7f3cd49c3ae6c1534_s0013",
+          "text": "不仅保障实在，保费也是相当亲民~全家一起投保还最高可省20%，妥妥的高性价比，家人们完全可以闭眼冲！",
+          "risk_score": 0.5864,
+          "risk_labels": [
+            "赠送利益",
+            "诱导投保"
+          ],
+          "reasoning": "宣称全家投保最高省20%，可能构成合同外利益，且'闭眼冲'等表述诱导投保，存在风险。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-18",
+      "title": "众民保癌症复发险",
+      "source_start_line": 505,
+      "source_end_line": 533,
+      "text_sha256": "defe227fe71a130b737adcd1ce2ecb73855948bbf9c34ba84892562e036e2e6e",
+      "gold_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "虚假宣传",
+        "绝对化表述",
+        "弱化风险提示",
+        "隐瞒重要信息",
+        "诱导投保"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "虚假宣传",
+        "赠送利益",
+        "绝对化表述",
+        "承诺收益",
+        "弱化风险提示",
+        "诱导投保",
+        "委托无资质机构销售"
+      ],
+      "missing_labels": [
+        "欺骗投保人",
+        "隐瞒重要信息"
+      ],
+      "extra_labels": [
+        "赠送利益",
+        "承诺收益",
+        "委托无资质机构销售"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST3_product_intro_detail",
+      "overall_score": 0.8346,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0002",
+          "text": "有这一个保险就够了！",
+          "risk_score": 0.5126,
+          "risk_labels": [
+            "绝对化表述"
+          ],
+          "reasoning": "使用'就够了'可能暗示该保险覆盖所有需求，存在绝对化表述风险。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0003",
+          "text": "对于癌症患者来说，比确诊更焦虑的是明明手术很成功\n却每天还要担心病情会复发😭\n而复发后高昂的治疗费用更是雪上加霜\n所以一份靠谱的复发保险非常重要❗\n提前准备好，提高抗风险能力，关键时刻能救命💢",
+          "risk_score": 0.5897,
+          "risk_labels": [
+            "销售误导",
+            "弱化风险提示",
+            "诱导投保"
+          ],
+          "reasoning": "通过描述焦虑场景诱导投保，且未提及保险的除外责任等风险，可能弱化风险提示。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0004",
+          "text": "👉众民保复发险，众多癌症患者的选择",
+          "risk_score": 0.3381,
+          "risk_labels": [],
+          "reasoning": "宣称'众多癌症患者的选择'，但未提供数据支持，可能涉及虚假宣传，但程度较轻。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0005",
+          "text": "✅病种覆盖全：\n保甲状腺癌、乳腺癌、宫颈癌等30 种恶性肿瘤，覆盖常见恶性肿瘤率90%+",
+          "risk_score": 0.4689,
+          "risk_labels": [
+            "虚假宣传"
+          ],
+          "reasoning": "宣称覆盖常见恶性肿瘤率90%+，但未说明数据来源，可能构成虚假宣传。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0006",
+          "text": "✅保障肿瘤全过程：\n最高确诊即赔20w，原位复发、区域复发、远端转移均在保障范围内",
+          "risk_score": 0.5224,
+          "risk_labels": [
+            "销售误导",
+            "承诺收益"
+          ],
+          "reasoning": "宣称'确诊即赔'，可能被理解为承诺赔付，但实际需符合条款，存在承诺收益风险。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0007",
+          "text": "✅药品限制少：\n🔸0免赔额，赔付比例100%\n🔸不限药品清单\n国家获批药物，赔：特药，普药、白蛋白等，\n自费部分也能赔，100%赔付\n🔸不限场景：院内自费、院外自费药品，都能赔\n🔸不限中药西药：复发后365天内所有药品治疗都在责任范围内",
+          "risk_score": 0.8346,
+          "risk_labels": [
+            "销售误导",
+            "绝对化表述",
+            "承诺收益"
+          ],
+          "reasoning": "使用'100%赔付'、'不限'等绝对化表述，且承诺赔付比例，可能构成承诺收益。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0008",
+          "text": "✅性价比高：保额最高140w，保费最低仅需20元1年",
+          "risk_score": 0.2616,
+          "risk_labels": [],
+          "reasoning": "描述保额和保费，未涉及收益承诺，风险较低。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0009",
+          "text": "✅增值服务：\n可指定三甲医院专家门诊，或三甲医院视频二诊，还有专业陪诊和专属康复药箱服务",
+          "risk_score": 0.4834,
+          "risk_labels": [
+            "赠送利益",
+            "委托无资质机构销售"
+          ],
+          "reasoning": "提及增值服务，可能被视为合同外利益，但需确认是否写入合同。"
+        },
+        {
+          "sentence_id": "query_61f71b6a5b3dbcd55827_s0010",
+          "text": "宝子们一定要提前买好🩷\n手术后复查正常且出院就抓紧投保，这个时候身体条件最好最容易通过核保要求，一旦错过这个时期，可能就买不了这么好的产品了",
+          "risk_score": 0.6854,
+          "risk_labels": [
+            "绝对化表述",
+            "诱导投保"
+          ],
+          "reasoning": "使用'一定要'、'最好'等诱导性语言，且'可能就买不了这么好的产品'可能构成绝对化表述。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-19",
+      "title": "微医保心梗理赔帖",
+      "source_start_line": 535,
+      "source_end_line": 554,
+      "text_sha256": "854335b4d0130c796ad4a0f720c6106068c2b2c9500038106997c51280b453ca",
+      "gold_labels": [
+        "欺骗投保人",
+        "销售误导",
+        "虚假宣传",
+        "合同外利益",
+        "赠送利益",
+        "绝对化表述",
+        "诱导投保"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "夸大收益",
+        "赠送利益",
+        "绝对化表述",
+        "诱导投保"
+      ],
+      "missing_labels": [
+        "欺骗投保人",
+        "虚假宣传",
+        "合同外利益"
+      ],
+      "extra_labels": [
+        "夸大收益"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.646,
+      "overall_level": "medium",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_56bdfff9b3117452c75e_s0011",
+          "text": "出院后在微信上传缴费单、诊断证明这些材料，理赔审核挺快的，没几天5000多💰就到账了，这保险买的真值💪真的大病小病什么都能理赔，根本不存在什么卡理赔流程，给良心公司点赞",
+          "risk_score": 0.53,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益",
+            "绝对化表述"
+          ],
+          "reasoning": "文本中'大病小病什么都能理赔'和'根本不存在什么卡理赔流程'属于绝对化表述，可能夸大保障范围，且'这保险买的真值'暗示收益，存在销售误导风险。"
+        },
+        {
+          "sentence_id": "query_56bdfff9b3117452c75e_s0012",
+          "text": "刷到小红书现在有专属福利，左下角下单送360元门诊保额，我买的时候还没这么划算，想了解的姐妹赶紧点进去瞅瞅，有羊毛要趁早薅~",
+          "risk_score": 0.646,
+          "risk_labels": [
+            "赠送利益",
+            "诱导投保"
+          ],
+          "reasoning": "文本提及'下单送360元门诊保额'，属于赠送利益，且'有羊毛要趁早薅'诱导投保，可能构成合同外利益和诱导行为。"
+        }
+      ]
+    },
+    {
+      "sample_id": "XHS-20",
+      "title": "微医保心肌炎理赔体验",
+      "source_start_line": 556,
+      "source_end_line": 564,
+      "text_sha256": "578db9670c82a2e695c01720e869fc349ce1b913071fbee2051b24f3022eea22",
+      "gold_labels": [],
+      "predicted_labels": [],
+      "missing_labels": [],
+      "extra_labels": [],
+      "exact_match": true,
+      "gold_is_risky": false,
+      "predicted_is_risky": false,
+      "scene": "ST1_poster_sms_social",
+      "overall_score": 0.1697,
+      "overall_level": "none",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": []
+    },
+    {
+      "sample_id": "XHS-21",
+      "title": "微医保肺炎理赔体验",
+      "source_start_line": 566,
+      "source_end_line": 576,
+      "text_sha256": "8d89441fb4571437b8da6caa35e2869fd4efbbb1fff25103fd704a95e25f2c76",
+      "gold_labels": [
+        "销售误导",
+        "虚假宣传",
+        "不当比较",
+        "绝对化表述",
+        "弱化风险提示",
+        "隐瞒重要信息"
+      ],
+      "predicted_labels": [
+        "销售误导",
+        "夸大收益"
+      ],
+      "missing_labels": [
+        "虚假宣传",
+        "不当比较",
+        "绝对化表述",
+        "弱化风险提示",
+        "隐瞒重要信息"
+      ],
+      "extra_labels": [
+        "夸大收益"
+      ],
+      "exact_match": false,
+      "gold_is_risky": true,
+      "predicted_is_risky": true,
+      "scene": "ST3_product_intro_detail",
+      "overall_score": 0.3499,
+      "overall_level": "low",
+      "llm_used": true,
+      "warnings": [],
+      "risky_sentences": [
+        {
+          "sentence_id": "query_c3d6e4f1732b23217fb4_s0013",
+          "text": "有了0免赔，等于日常住院都有兜底，不会白白花冤枉钱，而且这类小毛病谁家一年遇不上两会，这0免赔简直就跟免费福利一样。",
+          "risk_score": 0.3499,
+          "risk_labels": [
+            "销售误导",
+            "夸大收益"
+          ],
+          "reasoning": "将0免赔描述为'免费福利'，可能夸大产品利益，存在销售误导风险。"
+        },
+        {
+          "sentence_id": "query_c3d6e4f1732b23217fb4_s0014",
+          "text": "真心建议大家配置医疗险优先选0免赔的！",
+          "risk_score": 0.282,
+          "risk_labels": [
+            "销售误导"
+          ],
+          "reasoning": "建议优先选0免赔，可能诱导投保，但未涉及具体收益承诺，风险较低。"
+        }
+      ]
+    }
+  ]
+}

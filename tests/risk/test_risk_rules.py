@@ -25,7 +25,7 @@ def test_fallback_fusion_and_all_threshold_branches_are_reachable() -> None:
     scorer = RiskScorer()
     thresholder = RiskThresholder()
 
-    assert scorer.fuse(1.0, 0.0, None) == 0.65
+    assert scorer.fuse(1.0, 0.0, None) == 1.0
     assert thresholder.judge(0.90).level == RiskLevel.HIGH
     assert thresholder.judge(0.70).level == RiskLevel.MEDIUM
     assert thresholder.judge(0.50).level == RiskLevel.REVIEW

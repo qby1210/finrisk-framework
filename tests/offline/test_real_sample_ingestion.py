@@ -14,7 +14,7 @@ from risk.detection import RuleRiskDetector
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CASE_KB_ROOT = (
-    PROJECT_ROOT / "data" / "processed" / "knowledge" / "case_kb_v2_1_2026-08-18"
+    PROJECT_ROOT / "data" / "processed" / "knowledge" / "case_kb_v2_1_2026-08-23"
 )
 
 
@@ -36,7 +36,7 @@ def test_real_pdf_can_build_three_table_artifacts_without_writing_database() -> 
             PROJECT_ROOT / "data" / "risk" / "keyword_db" / "risk_keyword_db.json"
         ),
         llm_client=None,
-        data_version="case_kb_v2_1_2026-08-18",
+        data_version="case_kb_v2_1_2026-08-23",
     )
 
     artifacts = asyncio.run(

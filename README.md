@@ -6,7 +6,7 @@ FinRisk 是本次金融科技创新大赛的本地 Web 系统，现已打通三�
 - 案例管理：分页检索、查看原文证据、停用和恢复已有案例；
 - 风险查询：Query 六类场景分类、逐句风险判断、解释和相似案例匹配。
 
-系统整合了队员提供的案例构建包、7,328 条案例数据、风险判断代码和 Query
+系统整合了队员提供的案例构建包、7,628 条案例数据、风险判断代码和 Query
 分类/切分框架。运行时没有重复的案例库、文件提取器或 LLM 客户端。
 
 > 数据性质：当前案例库由队员根据原始监管案例 PDF 生成，不是赛事官方下发或经监管机构
@@ -36,11 +36,11 @@ uv run python scripts/run_web.py
 现成数据直接放在：
 
 ```text
-data/processed/knowledge/case_kb_v2_1_2026-08-18/
+data/processed/knowledge/case_kb_v2_1_2026-08-23/
 ├─ data/
-│  ├─ cases.jsonl              # 7,328 条案例主记录
-│  ├─ case_chunks.jsonl        # 29,918 条证据/事实等切片
-│  ├─ case_expansions.jsonl    # 8,873 条检索扩展
+│  ├─ cases.jsonl              # 7,628 条案例主记录
+│  ├─ case_chunks.jsonl        # 31,041 条证据/事实等切片
+│  ├─ case_expansions.jsonl    # 9,439 条检索扩展
 │  ├─ review_queue.jsonl
 │  └─ excluded_records.jsonl
 ├─ dictionary/                 # 风险标签和归口映射
@@ -58,22 +58,35 @@ data/processed/knowledge/case_kb_v2_1_2026-08-18/
 风险关键词唯一资产位于 `data/risk/keyword_db/risk_keyword_db.json`。原始压缩包保留作
 审计输入，但系统运行不依赖压缩包。
 
+## 官网案例定期更新
+
+金监总局处罚栏目（总局/省局/分局）的增量案例由脚本采集并走统一入库链：
+
+```powershell
+uv run python scripts/update_cases_from_web.py            # 日常更新（采集→筛选→入库）
+uv run python scripts/update_cases_from_web.py --dry-run  # 只采集汇报，不调模型
+```
+
+按文书内容三级去重（采集 state、台账 sha1、案例库 case_id 哈希），可每天重复运行，
+无新案时零模型调用；银行当事人案件按口径不入库。`data/raw/cases/crawl/` 是采集
+状态目录，删除会导致重复入库。详见 `src/offline/penalty_crawler/README.md`。
+
 ## 风险判断流程
 
 ```text
 Query 文本/文件
-  → 共用文件提取（文件输入）
+  → 多模态内容抽取（原生文本/PDF/RapidOCR/坐标/哈希/置信度）
   → 六类场景分类（规则高置信直出，DeepSeek 复核模糊场景）
-  → 可逆偏移切句（支持社交平台项目符号）
-  → 风险词库与组合正则
-  → 同一案例库 BM25 检索
-  → DeepSeek JSON 逐句判断
-  → 0.2/0.2/0.6 融合与五档阈值
-  → 逐句风险、依据、相似案例和整篇概览
+  → 可逆偏移切句（全文偏移/页码/坐标/前后文）
+  → 两阶段本地初判（强组合规则 + 场景加权关键词）
+  → 中低置信句动态批量 DeepSeek 复核（不传入案例）
+  → 达检索门槛后按风险标签约束案例候选
+  → BM25 + 本地TF-IDF向量 + RRF + 轻量重排
+  → 逐句结果与文档级风险/标签/Top案例聚合
 ```
 
-案例相似度是佐证，不是定性。没有规则或大模型的独立风险信号时，检索分被限制在风险
-阈值以下，历史案例标签也不会直接污染当前 Query。
+案例相似度是佐证，不参与风险分计算，也不会进入大模型提示词。只有最终句分达到可配置
+检索门槛且当前句已有风险标签时才检索；返回案例必须至少一个标签与句子标签相交。
 
 当前统一 LLM 模块在 `src/llm/`，默认使用：
 
@@ -94,15 +107,14 @@ src/
 ├─ llm/             # 唯一 DeepSeek/OpenAI-compatible 客户端
 ├─ offline/         # 新案例增量结构化和三表产物构建
 ├─ query/           # Query 场景分类、切句和原文映射
-├─ retrieval/       # 可直接运行的中文 unigram/bigram BM25
+├─ retrieval/       # 共用倒排表的 BM25 与本地 TF-IDF 向量召回
 ├─ risk/            # 规则检测、融合校准、风险流水线
 ├─ storage/         # 统一案例库持久化与 manifest 刷新
 └─ web/static/      # 三功能 Web UI
 ```
 
-原案例检索复现包的完整 GPU/BGE 训练与实验代码没有复制进运行项目，因为其模型权重和
-CUDA 环境不属于本次可交付运行依赖。当前保留了可解释、无外部权重的稀疏检索思路，接口
-已隔离，后续可以在 `retrieval` 内替换为 BGE-M3/reranker 而不改 Web 和业务契约。
+当前向量通道使用中文 unigram/bigram TF-IDF 余弦相似度，并利用案例扩展表达覆盖同义
+说法；它与 BM25 共用倒排表，无需下载模型或 CUDA，适合比赛机器离线演示。
 
 ## 主要 API
 
@@ -127,6 +139,7 @@ uv run ruff check .
 uv run mypy src
 uv run pytest -q
 node --check src/web/static/app.js
+uv run python scripts/evaluate_query_test_set_160.py --mode full
 ```
 
 真实样本测试不会写主库：处罚 PDF 只构建内存三表产物；小红书文案测试显式禁用 LLM，

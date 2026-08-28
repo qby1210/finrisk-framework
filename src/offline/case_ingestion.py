@@ -9,10 +9,10 @@ from datetime import UTC, date, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from domain.file_models import FileExtractionResult
-from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
+from llm import ChatMessage, JsonChatRequest, JsonChatResponse, LLMClient, LLMProviderError
 from risk.detection import RuleRiskDetector
 
 
@@ -59,6 +59,55 @@ class _CaseLLMOutput(BaseModel):
     marketing_expressions: list[str] = Field(default_factory=list, max_length=8)
     confidence: float = Field(ge=0, le=1)
 
+    @field_validator("legal_basis_refs", mode="before")
+    @classmethod
+    def _coerce_legal_basis_strings(cls, value: object) -> object:
+        """模型常把法条输出成纯字符串，统一包成 {law_name, article} 结构。"""
+
+        if not isinstance(value, list):
+            return []
+        return [
+            {"law_name": item, "article": None} if isinstance(item, str) else item
+            for item in value
+        ]
+
+    @field_validator("risk_tag_basis", mode="before")
+    @classmethod
+    def _coerce_risk_tag_basis(cls, value: object) -> object:
+        """模型可能返回 null、单个对象或残缺项：单对象包成列表，缺 risk_tag/quote
+        的项直接丢弃（后续 build 还会按 quote 是否见于原文再过滤一次）。"""
+
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            value = [value]
+        if not isinstance(value, list):
+            return []
+        items = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            if not item.get("risk_tag") or not item.get("quote"):
+                continue
+            if not item.get("reason"):
+                item = {**item, "reason": "见引文"}
+            items.append(item)
+        return items
+
+    @field_validator(
+        "related_parties", "risk_tags", "keywords",
+        "marketing_expressions", mode="before",
+    )
+    @classmethod
+    def _none_list_to_empty(cls, value: object) -> object:
+        """模型对空列表字段经常返回 null，按空列表处理而不是整单校验失败。"""
+
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [item for item in value if item]
+        return value
+
 
 class IncrementalCaseBuilder:
     """把已有 FileExtractionResult 转成案例库三表兼容记录。"""
@@ -101,6 +150,7 @@ class IncrementalCaseBuilder:
         else:
             warnings.append("未配置 DeepSeek API Key，案例以规则降级模式入库")
             output = self._fallback(text)
+        warnings.extend(_field_completeness_warnings(output))
 
         case_id = f"U{extraction.checksum_sha256[:15].upper()}"
         file_id = f"F_{extraction.checksum_sha256[:16].upper()}"
@@ -211,15 +261,46 @@ class IncrementalCaseBuilder:
         if self.llm_client is None:
             raise LLMProviderError("大模型未配置")
         excerpt = text if len(text) <= 40_000 else f"{text[:25_000]}\n[中间省略]\n{text[-15_000:]}"
-        response = await self.llm_client.complete_json(
+        # 输出含完整案由/处罚内容/摘要/引文，3000 tokens 会在长文书上截断 JSON，
+        # 因此放宽到 8000；若仍触发 length 上限，按 16000 重试一次，避免静默落入
+        # 正则降级而产生"半句话"字段。
+        last_error: LLMProviderError | None = None
+        for token_budget in (8000, 16000):
+            try:
+                response = await self._request_structured_case(excerpt, token_budget)
+            except LLMProviderError as error:
+                last_error = error
+                if "截断" in str(error):
+                    continue
+                raise
+            if response.finish_reason == "length":
+                last_error = LLMProviderError("大模型输出达到 max_tokens 上限被截断")
+                continue
+            try:
+                return _CaseLLMOutput.model_validate(response.data)
+            except ValidationError as error:
+                raise LLMProviderError("DeepSeek 案例输出不符合字段契约") from error
+        raise last_error or LLMProviderError("大模型服务返回了无法解析的响应")
+
+    async def _request_structured_case(self, excerpt: str, max_tokens: int) -> JsonChatResponse:
+        if self.llm_client is None:
+            raise LLMProviderError("大模型未配置")
+        return await self.llm_client.complete_json(
             JsonChatRequest(
                 messages=[
                     ChatMessage(
                         role="system",
                         content=(
                             "你是保险监管处罚案例结构化专家。只能提取原文明确存在的事实；"
-                            "不确定字段必须为null。risk_tags只能从给定标签选0到2个；"
-                            "risk_tag_basis.quote必须是原文逐字片段。输出单个JSON对象，字段为："
+                            "不确定字段必须为null。party_name只填主要被处罚方的完整名称"
+                            "（机构全称或个人姓名），不得含\"当事人\"等标签字样、地址、"
+                            "身份证号或职务说明。violation_behavior必须是违法违规事实的完整"
+                            "表述、以句号收尾，禁止在半句话处截断；penalty_content必须是处罚"
+                            "决定的完整表述、以句号收尾，不得混入当事人身份信息。"
+                            "risk_tags只能从给定标签选0到2个；"
+                            "risk_tag_basis.quote必须是原文逐字片段。"
+                            "legal_basis_refs每项必须是对象{\"law_name\":\"法条名\",\"article\":\"第X条或null\"}；"
+                            "所有列表字段没有内容时输出[]，禁止输出null。输出单个JSON对象，字段为："
                             "case_title,party_name,institution_type,penalty_doc_no,violation_behavior,"
                             "penalty_content,regulator,penalty_date(YYYY-MM-DD或null),related_parties,"
                             "legal_basis_refs,risk_tags,risk_tag_basis,case_summary,keywords,"
@@ -235,13 +316,9 @@ class IncrementalCaseBuilder:
                     ),
                 ],
                 temperature=0.0,
-                max_tokens=3000,
+                max_tokens=max_tokens,
             )
         )
-        try:
-            return _CaseLLMOutput.model_validate(response.data)
-        except ValidationError as error:
-            raise LLMProviderError("DeepSeek 案例输出不符合字段契约") from error
 
     def _fallback(self, text: str) -> _CaseLLMOutput:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -276,6 +353,34 @@ def load_risk_domain_mapping(path: str) -> dict[str, str]:
     if not isinstance(value, dict):
         raise ValueError("风险归口映射必须是 JSON 对象")
     return {str(key): str(domain) for key, domain in value.items()}
+
+
+_SENTENCE_END = tuple("。；;！？!?”』】)")
+_MID_CLAUSE_END = tuple("对的和及与并或、，,；：:等为向把被从由按其于在到")
+_PARTY_DIRTY_RE = re.compile(r"^(?:当事人|被处罚人)\s*[：:]|身份证|地址|住所|住址")
+
+
+def _field_completeness_warnings(output: _CaseLLMOutput) -> list[str]:
+    """抽取结果的事后完整性检查：截断/错位只产生警告，不阻断入库。"""
+
+    warnings: list[str] = []
+    violation = output.violation_behavior.rstrip()
+    if violation and not violation.endswith(_SENTENCE_END):
+        warnings.append("violation_behavior 未以完整句子收尾，可能存在截断，请对照原文复核")
+    if violation and violation.endswith(_MID_CLAUSE_END):
+        warnings.append("violation_behavior 在虚词处结尾，疑似半句截断，请对照原文复核")
+    penalty = (output.penalty_content or "").rstrip()
+    if penalty and penalty.endswith(_MID_CLAUSE_END):
+        warnings.append("penalty_content 在虚词处结尾，疑似半句截断，请对照原文复核")
+    if penalty and re.search(
+        r"当事人[：:].{0,200}?(身份证|地址|住所|统一社会信用代码)",
+        penalty,
+        re.S,
+    ):
+        warnings.append("penalty_content 混入当事人身份信息，疑似字段错位，请对照原文复核")
+    if output.party_name and _PARTY_DIRTY_RE.search(output.party_name):
+        warnings.append("party_name 含标签前缀或地址/身份信息，请对照原文复核")
+    return warnings
 
 
 def _build_chunks(

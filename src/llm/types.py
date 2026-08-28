@@ -29,3 +29,4 @@ class JsonChatResponse(ContractModel):
     data: dict[str, object]
     model: str
     usage: dict[str, object] = Field(default_factory=dict)
+    finish_reason: str | None = None

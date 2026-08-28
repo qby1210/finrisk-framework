@@ -77,6 +77,12 @@ def test_repository_reads_and_retrieves_existing_case(tmp_path: Path) -> None:
     assert matches
     assert matches[0].case_id == "C001"
     assert 0 < matches[0].score <= 1
+    assert matches[0].bm25_score > 0
+    assert matches[0].vector_score > 0
+    assert matches[0].rrf_score > 0
+    aligned = service.search("保证收益百分之十", top_k=3, risk_tags={"承诺收益"})
+    assert aligned[0].matched_risk_tags == ["承诺收益"]
+    assert service.search("保证收益百分之十", top_k=3, risk_tags={"赠送利益"}) == []
 
 
 def test_incremental_case_joins_same_files_and_can_be_deactivated(tmp_path: Path) -> None:

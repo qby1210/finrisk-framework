@@ -32,6 +32,7 @@ from llm import (
 from query.classification import LLMRequiredError
 from risk.detection import RuleRiskDetector
 from risk.pipeline import RiskAssessmentPipeline
+from risk.taxonomy import load_taxonomy_descriptions
 from settings import AppSettings
 from storage.case_repository import CaseNotFoundError, CaseRepository, DuplicateCaseError
 
@@ -95,11 +96,15 @@ def get_query_service() -> QueryProcessingService:
 @lru_cache(maxsize=1)
 def get_analysis_service() -> QueryAnalysisService:
     repository = get_repository()
+    settings = get_settings()
     pipeline = RiskAssessmentPipeline(
         rule_detector=get_rule_detector(),
         retrieval_service=get_retrieval_service(),
         taxonomy=repository.risk_dictionary(),
         llm_client=get_llm_client(),
+        taxonomy_descriptions=load_taxonomy_descriptions(settings.risk_dictionary_path),
+        risk_display_threshold=settings.risk_display_threshold,
+        retrieval_threshold=settings.retrieval_risk_threshold,
     )
     return QueryAnalysisService(query_service=get_query_service(), risk_pipeline=pipeline)
 
@@ -133,6 +138,8 @@ async def health(case_service: CaseDependency) -> dict[str, object]:
         "case_count": statistics.total_cases,
         "active_case_count": statistics.active_cases,
         "data_version": statistics.data_version,
+        "latest_crawl_at": statistics.latest_crawl_at,
+        "latest_penalty_date": statistics.latest_penalty_date,
         "llm_model": llm_client.model_name if llm_client else None,
     }
 

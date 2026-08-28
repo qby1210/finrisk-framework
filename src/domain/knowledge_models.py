@@ -73,6 +73,8 @@ class CaseStatistics(ContractModel):
     active_cases: int = Field(ge=0)
     risk_tag_count: int = Field(ge=0)
     data_version: str | None = None
+    latest_crawl_at: str | None = None
+    latest_penalty_date: str | None = None
 
 
 class MatchedCase(ContractModel):
@@ -85,6 +87,11 @@ class MatchedCase(ContractModel):
     regulator: str | None = None
     risk_tags: list[str] = Field(default_factory=list)
     score: float = Field(ge=0, le=1)
+    bm25_score: float = Field(default=0.0, ge=0, le=1)
+    vector_score: float = Field(default=0.0, ge=0, le=1)
+    rrf_score: float = Field(default=0.0, ge=0, le=1)
+    rerank_score: float = Field(default=0.0, ge=0, le=1)
+    matched_risk_tags: list[str] = Field(default_factory=list)
     matched_text: str
     matched_source: str
     matched_unit_id: str

@@ -1,4 +1,4 @@
-"""案例知识库的轻量稀疏检索实现。"""
+"""案例知识库的 BM25 与本地 TF-IDF 向量检索实现。"""
 
 from retrieval.sparse import RetrievalDocument, SparseRetrievalIndex, SparseSearchHit
 

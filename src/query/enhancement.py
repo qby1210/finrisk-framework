@@ -9,6 +9,7 @@ from hashlib import sha256
 from domain.common import QueryInputType
 from domain.file_models import FileExtractionResult, PageContent, TextBlock
 from domain.query_models import (
+    QueryExtractionSummary,
     QueryProcessingResult,
     QuerySourceRegion,
     RiskQuerySentence,
@@ -91,6 +92,8 @@ async def prepare_query(
                 sentence_id=sentence_id,
                 input_type=input_type,
                 span=span,
+                context_before=spans[index - 2].text if index > 1 else "",
+                context_after=spans[index].text if index < len(spans) else "",
                 extraction=extraction,
             )
         )
@@ -101,6 +104,7 @@ async def prepare_query(
         source_text=text,
         source_document_id=extraction.document_id if extraction else None,
         source_filename=extraction.source_filename if extraction else None,
+        extraction=_extraction_summary(text, extraction),
         classification=classification,
         sentences=sentences,
         source_mappings=mappings,
@@ -137,6 +141,8 @@ def _build_source_mapping(
     sentence_id: str,
     input_type: QueryInputType,
     span: SentenceSpan,
+    context_before: str,
+    context_after: str,
     extraction: FileExtractionResult | None,
 ) -> SentenceSourceMapping:
     regions: list[QuerySourceRegion] = []
@@ -156,6 +162,8 @@ def _build_source_mapping(
                         document_start_offset=overlap_start,
                         document_end_offset=overlap_end,
                         polygon=block.polygon,
+                        confidence=block.confidence,
+                        extraction_method=block.extraction_method.value,
                     )
                 )
 
@@ -167,7 +175,40 @@ def _build_source_mapping(
         source_filename=extraction.source_filename if extraction else None,
         document_start_offset=span.start_offset,
         document_end_offset=span.end_offset,
+        context_before=context_before,
+        context_after=context_after,
         regions=regions,
+    )
+
+
+def _extraction_summary(
+    text: str,
+    extraction: FileExtractionResult | None,
+) -> QueryExtractionSummary:
+    if extraction is None:
+        encoded = text.encode("utf-8")
+        return QueryExtractionSummary(
+            media_type="text/plain",
+            checksum_sha256=sha256(encoded).hexdigest(),
+            file_size_bytes=len(encoded),
+            page_count=1,
+            ocr_page_count=0,
+            extraction_method="native_text",
+            quality_score=1.0,
+            block_count=1,
+            word_count=0,
+        )
+    return QueryExtractionSummary(
+        media_type=extraction.media_type,
+        checksum_sha256=extraction.checksum_sha256,
+        file_size_bytes=extraction.file_size_bytes,
+        page_count=extraction.page_count,
+        ocr_page_count=extraction.ocr_page_count,
+        extraction_method=extraction.extraction_method.value,
+        quality_score=extraction.quality_score,
+        block_count=sum(len(page.blocks) for page in extraction.pages),
+        word_count=sum(len(page.words) for page in extraction.pages),
+        warnings=extraction.warnings,
     )
 
 

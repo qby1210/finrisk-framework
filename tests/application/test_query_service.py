@@ -34,3 +34,7 @@ def test_service_processes_file_into_risk_sentences_and_source_regions(tmp_path:
             == sentence.text
         )
         assert mapping.regions[0].block_id.startswith("p1-b")
+    assert result.source_mappings[1].context_before == result.sentences[0].text
+    assert result.source_mappings[1].context_after == result.sentences[2].text
+    assert result.extraction.checksum_sha256 == result.source_document_id
+    assert result.extraction.block_count >= 3

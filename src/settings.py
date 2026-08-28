@@ -27,6 +27,8 @@ class AppSettings:
     risk_keyword_path: Path
     raw_case_upload_dir: Path
     max_upload_size_bytes: int = 25 * 1024 * 1024
+    risk_display_threshold: float = 0.20
+    retrieval_risk_threshold: float = 0.40
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -37,7 +39,7 @@ class AppSettings:
             project_root=PROJECT_ROOT,
             case_kb_root=_resolve_path(
                 os.getenv("FINRISK_CASE_KB_ROOT"),
-                knowledge_root / "case_kb_v2_1_2026-08-18",
+                knowledge_root / "case_kb_v2_1_2026-08-23",
             ),
             risk_keyword_path=_resolve_path(
                 os.getenv("FINRISK_RISK_KEYWORD_PATH"),
@@ -49,6 +51,10 @@ class AppSettings:
             ),
             max_upload_size_bytes=int(
                 os.getenv("FINRISK_MAX_UPLOAD_SIZE_BYTES", str(25 * 1024 * 1024))
+            ),
+            risk_display_threshold=float(os.getenv("FINRISK_RISK_DISPLAY_THRESHOLD", "0.20")),
+            retrieval_risk_threshold=float(
+                os.getenv("FINRISK_RETRIEVAL_RISK_THRESHOLD", "0.40")
             ),
         )
 

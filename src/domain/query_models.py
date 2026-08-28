@@ -68,6 +68,8 @@ class QuerySourceRegion(ContractModel):
     document_start_offset: int = Field(ge=0)
     document_end_offset: int = Field(ge=1)
     polygon: list[NormalizedPoint] | None = Field(default=None, min_length=4, max_length=4)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    extraction_method: str | None = None
 
     @model_validator(mode="after")
     def validate_offsets(self) -> "QuerySourceRegion":
@@ -86,6 +88,8 @@ class SentenceSourceMapping(ContractModel):
     source_filename: str | None = None
     document_start_offset: int = Field(ge=0)
     document_end_offset: int = Field(ge=1)
+    context_before: str = ""
+    context_after: str = ""
     regions: list[QuerySourceRegion] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -93,6 +97,21 @@ class SentenceSourceMapping(ContractModel):
         if self.document_end_offset <= self.document_start_offset:
             raise ValueError("document_end_offset 必须大于 document_start_offset")
         return self
+
+
+class QueryExtractionSummary(ContractModel):
+    """Query 内容抽取层的可审计摘要。"""
+
+    media_type: str
+    checksum_sha256: str
+    file_size_bytes: int = Field(ge=0)
+    page_count: int = Field(ge=0)
+    ocr_page_count: int = Field(ge=0)
+    extraction_method: str
+    quality_score: float | None = Field(default=None, ge=0, le=1)
+    block_count: int = Field(ge=0)
+    word_count: int = Field(ge=0)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class QueryProcessingResult(ContractModel):
@@ -104,6 +123,7 @@ class QueryProcessingResult(ContractModel):
     source_text: str = Field(description="文件抽取后的全文或文字输入，用于偏移映射")
     source_document_id: str | None = None
     source_filename: str | None = None
+    extraction: QueryExtractionSummary
     classification: QuerySceneClassification
     sentences: list[RiskQuerySentence] = Field(min_length=1)
     source_mappings: list[SentenceSourceMapping] = Field(min_length=1)

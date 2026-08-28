@@ -23,7 +23,7 @@
 
 ## 2. 案例知识库物理表
 
-主库 schema 沿用队员构建包，避免重建 7,328 条数据。
+主库 schema 沿用队员构建包，避免重建 7,628 条数据。
 
 ### `cases.jsonl`
 
@@ -91,6 +91,7 @@
 - `classification`：六类场景、置信度、方法、证据、版本；
 - `sentences[]`：Risk 唯一四字段输入；
 - `source_mappings[]`：与句子一一对应的原文偏移和页面区域；
+- `extraction`：媒体类型、SHA-256、页数、OCR页数、方法、质量和块/字词统计；
 - `metadata`：渠道和提取质量等附加信息。
 
 `RiskQuerySentence` 严格只有：
@@ -108,23 +109,27 @@ Risk 不修改这四个字段，使用 `sentence_id` 回写结果。
 
 ## 5. 风险输出
 
-`QueryAnalysisResult` 3.0 继承 Query 2.0 并增加：
+`QueryAnalysisResult` 4.0 继承 Query 2.0 并增加：
 
 ### `risk_summary`
 
 | 字段 | 含义 |
 | --- | --- |
-| `overall_score / overall_level` | 全文最高句风险与等级 code |
+| `overall_score / overall_level` | 最高句为主、多风险句有限增益后的全文风险 |
 | `overall_level_name / action` | 中文显示和建议动作 |
-| `risk_labels` | 风险句标签频次汇总 |
+| `risk_labels / risk_findings` | 阈值以上标签及其最高分、句数和句子ID |
+| `top_matched_cases` | 跨句去重后的Top标签对齐案例 |
+| `risk_display_threshold / retrieval_threshold` | 风险展示与案例检索门槛 |
 | `sentence_count / risky_sentence_count` | 总句数和分数不低于 0.20 的句数 |
 | `llm_used / llm_model` | 本次是否真正使用 LLM |
+| `llm_reviewed_sentence_count / local_direct_sentence_count` | 复核与本地直出数量 |
 | `warnings` | 降级或供应商异常 |
 
 ### `risk_assessments[]`
 
 每项与一个 `sentence_id` 对应，包含 `text / risk_score / risk_level / risk_labels /
-reasoning / method / evidence / matched_cases`。模型验证器强制与原句顺序完全一致。
+reasoning / method / local_score / local_confidence / llm_reviewed / retrieval_performed /
+evidence / matched_cases`。`MatchedCase` 同时给出 BM25、向量、RRF 与最终重排分。
 
 ## 6. LLM 协议
 
@@ -134,8 +139,8 @@ Pydantic schema。API Key 不属于任何业务模型，也不能写入日志或
 
 ## 7. 版本与变更
 
-- 案例物理表：`case_kb_v1`，数据版本 `case_kb_v2_1_2026-08-18`；
+- 案例物理表：`case_kb_v1`，数据版本 `case_kb_v2_1_2026-08-25`；
 - Query：2.0；
-- Query + Risk 聚合输出：3.0；
+- Query + Risk 聚合输出：4.0；
 - 风险阈值和词库变更必须新增回归测试；
 - 删除/重命名字段前确认现有 JSONL 是否需要迁移，不静默重建主库。

@@ -36,11 +36,24 @@ class SentenceRiskAssessment(ContractModel):
     risk_level: RiskLevel
     risk_level_name: str
     action: str
-    risk_labels: list[str] = Field(default_factory=list, max_length=3)
+    risk_labels: list[str] = Field(default_factory=list)
     reasoning: str
     method: str
+    local_score: float = Field(default=0.0, ge=0, le=1)
+    local_confidence: float = Field(default=0.0, ge=0, le=1)
+    llm_reviewed: bool = False
+    retrieval_performed: bool = False
     evidence: list[RiskEvidence] = Field(default_factory=list)
     matched_cases: list[MatchedCase] = Field(default_factory=list)
+
+
+class RiskLabelFinding(ContractModel):
+    """整篇材料中一个超过展示阈值的风险标签。"""
+
+    label: str
+    max_score: float = Field(ge=0, le=1)
+    sentence_count: int = Field(ge=1)
+    sentence_ids: list[str] = Field(min_length=1)
 
 
 class QueryRiskSummary(ContractModel):
@@ -51,17 +64,25 @@ class QueryRiskSummary(ContractModel):
     overall_level_name: str
     action: str
     risk_labels: list[str] = Field(default_factory=list)
+    risk_findings: list[RiskLabelFinding] = Field(default_factory=list)
+    top_matched_cases: list[MatchedCase] = Field(default_factory=list)
+    risk_display_threshold: float = Field(default=0.2, ge=0, le=1)
+    retrieval_threshold: float = Field(default=0.4, ge=0, le=1)
+    max_sentence_score: float = Field(default=0.0, ge=0, le=1)
     sentence_count: int = Field(ge=1)
     risky_sentence_count: int = Field(ge=0)
     llm_used: bool
     llm_model: str | None = None
+    llm_reviewed_sentence_count: int = Field(default=0, ge=0)
+    local_direct_sentence_count: int = Field(default=0, ge=0)
+    retrieval_sentence_count: int = Field(default=0, ge=0)
     warnings: list[str] = Field(default_factory=list)
 
 
 class QueryAnalysisResult(QueryProcessingResult):
     """分类、切句、风险判断、案例匹配的一体化 Web/API 输出。"""
 
-    schema_version: str = "3.0"
+    schema_version: str = "4.0"
     risk_summary: QueryRiskSummary
     risk_assessments: list[SentenceRiskAssessment] = Field(min_length=1)
 

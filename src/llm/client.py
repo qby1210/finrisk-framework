@@ -51,6 +51,7 @@ class _ProviderMessage(BaseModel):
 
 class _ProviderChoice(BaseModel):
     message: _ProviderMessage
+    finish_reason: str | None = None
 
 
 class _ProviderResponse(BaseModel):
@@ -92,6 +93,7 @@ class OpenAICompatibleLLMClient:
             "Content-Type": "application/json",
             "User-Agent": "FinRisk/1.0",
         }
+        provider_response: _ProviderResponse | None = None
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
@@ -108,12 +110,23 @@ class OpenAICompatibleLLMClient:
         except httpx.HTTPStatusError as error:
             raise LLMProviderError(f"大模型服务返回 HTTP {error.response.status_code}") from error
         except (httpx.HTTPError, json.JSONDecodeError, ValidationError, ValueError) as error:
+            if self._hit_length_limit(provider_response):
+                raise LLMProviderError("大模型输出达到 max_tokens 上限被截断") from error
             raise LLMProviderError("大模型服务返回了无法解析的响应") from error
         return JsonChatResponse(
             data=data,
             model=provider_response.model,
             usage=provider_response.usage or {},
+            finish_reason=provider_response.choices[0].finish_reason,
         )
+
+    @staticmethod
+    def _hit_length_limit(provider_response: _ProviderResponse | None) -> bool:
+        """JSON 解析失败时区分"输出被 max_tokens 截断"与普通格式错误。"""
+
+        if provider_response is None or not provider_response.choices:
+            return False
+        return provider_response.choices[0].finish_reason == "length"
 
 
 def create_llm_client_from_env() -> OpenAICompatibleLLMClient | None:

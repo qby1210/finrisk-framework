@@ -19,14 +19,6 @@ const sceneLabels = {
   ST6_penalty_backend_fact: "监管处罚 / 后台业务事实",
 };
 
-const levelLabels = {
-  high: "高风险",
-  medium: "中风险",
-  review: "需复核",
-  low: "低风险",
-  none: "未见明显风险",
-};
-
 const el = (selector) => document.querySelector(selector);
 
 document.querySelectorAll("[data-view]").forEach((button) => {
@@ -61,6 +53,8 @@ el("#risk-filter").addEventListener("change", (event) => {
   renderRiskSentences();
 });
 el("#risk-list").addEventListener("click", handleCaseLink);
+el("#top-cases").addEventListener("click", handleCaseLink);
+el("#source-highlight").addEventListener("click", handleSourceHighlightClick);
 el("#ingest-button").addEventListener("click", ingestCase);
 el("#case-filters").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -130,7 +124,9 @@ async function loadHealth() {
     const data = await api("/api/health");
     el("#health-state").classList.add("is-ready");
     const model = data.llm_model ? ` · ${data.llm_model}` : " · 规则降级模式";
-    el("#health-text").textContent = `${data.active_case_count.toLocaleString("zh-CN")} 条启用案例${model}`;
+    const crawl = data.latest_crawl_at ? ` · 最近采集 ${data.latest_crawl_at}` : "";
+    const penalty = data.latest_penalty_date ? ` · 最新处罚 ${data.latest_penalty_date}` : "";
+    el("#health-text").textContent = `${data.active_case_count.toLocaleString("zh-CN")} 条启用案例${model}${crawl}${penalty}`;
   } catch (error) {
     el("#health-state").classList.add("is-error");
     el("#health-text").textContent = "本地服务连接失败";
@@ -174,55 +170,81 @@ function renderRiskResult() {
   el("#risk-empty").hidden = true;
   el("#risk-content").hidden = false;
   el("#risk-summary").innerHTML = `
-    <article class="level-card level-${escapeHtml(summary.overall_level)}">
+    <article class="summary-card level-${escapeHtml(summary.overall_level)}">
       <span>整体风险</span><strong>${escapeHtml(summary.overall_level_name)}</strong>
       <small>${escapeHtml(summary.action)}</small>
     </article>
-    <article><span>最高分数</span><strong>${formatPercent(summary.overall_score)}</strong><small>按最高风险语句汇总</small></article>
-    <article><span>风险语句</span><strong>${summary.risky_sentence_count} / ${summary.sentence_count}</strong><small>${escapeHtml(summary.risk_labels.join(" · ") || "暂无风险标签")}</small></article>
-    <article><span>判断方式</span><strong>${summary.llm_used ? "融合判断" : "降级判断"}</strong><small>${escapeHtml(summary.llm_model || "规则 + 案例 BM25")}</small></article>
+    <article class="summary-card"><span>整体风险分</span><strong>${formatPercent(summary.overall_score)}</strong><small>最高句 ${formatPercent(summary.max_sentence_score)}，多句风险有限增益</small></article>
+    <article class="summary-card"><span>风险语句</span><strong>${summary.risky_sentence_count} / ${summary.sentence_count}</strong><small>检索 ${summary.retrieval_sentence_count} 句 · 门槛 ${formatPercent(summary.retrieval_threshold)}</small></article>
+    <article class="summary-card"><span>计算路径</span><strong>${summary.llm_reviewed_sentence_count} 句复核</strong><small>本地直出 ${summary.local_direct_sentence_count} 句 · ${escapeHtml(summary.llm_model || "本地模式")}</small></article>
   `;
   el("#risk-warnings").innerHTML = summary.warnings
     .map((warning) => `<p>提示：${escapeHtml(warning)}</p>`)
     .join("");
   const classification = result.classification;
-  el("#classification-note").textContent = `${sceneLabels[classification.scene] || classification.scene} · ${formatPercent(classification.confidence)} · ${classification.method === "llm" ? "大模型复核分类" : "规则分类"}`;
+  el("#classification-note").textContent = `${sceneLabels[classification.scene] || classification.scene} · ${formatPercent(classification.confidence)} · ${classification.method === "llm" ? "大模型复核分类" : "本地规则分类"}`;
+  const extraction = result.extraction;
+  const quality = extraction.quality_score == null ? "—" : formatPercent(extraction.quality_score);
+  el("#extraction-note").textContent = `${extraction.extraction_method} · ${extraction.page_count} 页 · OCR ${extraction.ocr_page_count} 页 · 质量 ${quality} · SHA-256 ${extraction.checksum_sha256.slice(0, 10)}…`;
+  const candidates = classification.rule_candidates.filter((item) => item.score > 0).slice(0, 4);
+  el("#classification-candidates").innerHTML = candidates.length
+    ? candidates.map((item, index) => `
+      <span class="candidate-chip ${index === 0 ? "is-top" : ""}">
+        ${escapeHtml(sceneLabels[item.scene] || item.scene)} · ${formatPercent(item.confidence)}
+      </span>
+    `).join("")
+    : '<span class="candidate-chip">本地规则无明确候选，使用模型判定</span>';
+  renderSourceHighlight();
+  renderTopCases();
   renderRiskSentences();
   el("#risk-results").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderRiskSentences() {
   if (!state.riskResult) return;
-  let assessments = state.riskResult.risk_assessments;
+  let assessments = state.riskResult.risk_assessments.map((item, index) => ({ item, index }));
   if (state.riskFilter === "risky") {
-    assessments = assessments.filter((item) => item.risk_score >= 0.2);
+    assessments = assessments.filter(({ item }) => item.risk_score >= state.riskResult.risk_summary.risk_display_threshold);
+  }
+  if (state.riskFilter === "retrieved") {
+    assessments = assessments.filter(({ item }) => item.matched_cases.length > 0);
   }
   if (!assessments.length) {
     el("#risk-list").innerHTML = '<div class="inline-empty">当前筛选下没有风险语句。</div>';
     return;
   }
-  el("#risk-list").innerHTML = assessments.map((item, index) => {
+  const mappings = new Map(state.riskResult.source_mappings.map((item) => [item.sentence_id, item]));
+  el("#risk-list").innerHTML = assessments.map(({ item, index }) => {
+    const mapping = mappings.get(item.sentence_id);
+    const pageNumbers = [...new Set((mapping?.regions || []).map((region) => region.page_number))];
+    const location = pageNumbers.length ? `第 ${pageNumbers.join("、")} 页` : "文本输入";
     const tags = item.risk_labels.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
     const evidence = item.evidence.map((value) => `<li>${escapeHtml(value.description)}</li>`).join("");
     const matches = item.matched_cases.map((matched) => `
       <button class="matched-case" type="button" data-case-id="${escapeHtml(matched.case_id)}">
         <span><b>${escapeHtml(matched.case_id)}</b><em>${formatPercent(matched.score)} 匹配</em></span>
         <strong>${escapeHtml(matched.case_title || matched.violation_behavior.slice(0, 72))}</strong>
-        <small>${escapeHtml(matched.risk_tags.join(" · ") || "未标注")}</small>
+        <small>${escapeHtml(matched.matched_risk_tags.join(" · ") || matched.risk_tags.join(" · ") || "未标注")}</small>
+        <small class="score-breakdown">BM25 ${formatPercent(matched.bm25_score)} · 向量 ${formatPercent(matched.vector_score)} · RRF ${formatPercent(matched.rrf_score)}</small>
       </button>
     `).join("");
     return `
-      <article class="risk-card level-${escapeHtml(item.risk_level)}">
-        <div class="risk-index">${String(index + 1).padStart(2, "0")}</div>
+      <article class="risk-card level-${escapeHtml(item.risk_level)}" id="sentence-${escapeHtml(item.sentence_id)}">
         <div class="risk-body">
           <div class="risk-card-head">
-            <div><span class="level-badge">${escapeHtml(item.risk_level_name)}</span>${tags}</div>
+            <div><span class="sentence-number">S${String(index + 1).padStart(2, "0")}</span><span class="level-badge">${escapeHtml(item.risk_level_name)}</span>${tags}</div>
             <strong>${formatPercent(item.risk_score)}</strong>
           </div>
           <p class="risk-text">${escapeHtml(item.text)}</p>
           <p class="reasoning">${escapeHtml(item.reasoning)}</p>
+          <div class="sentence-meta">
+            <span>${escapeHtml(location)}</span>
+            <span>偏移 ${mapping?.document_start_offset ?? "—"}–${mapping?.document_end_offset ?? "—"}</span>
+            <span>本地 ${formatPercent(item.local_score)} / 置信度 ${formatPercent(item.local_confidence)}</span>
+            <span>${item.llm_reviewed ? "LLM 已复核" : "本地直出"}</span>
+          </div>
           <details>
-            <summary>查看判断依据与 ${item.matched_cases.length} 条相似案例</summary>
+            <summary>查看 ${item.evidence.length} 条判断依据与 ${item.matched_cases.length} 条相似案例</summary>
             <div class="evidence-grid">
               <div><h4>判断依据</h4><ul>${evidence || "<li>无额外证据</li>"}</ul></div>
               <div><h4>相似案例</h4><div class="matched-list">${matches || '<p class="muted">未找到相似案例。</p>'}</div></div>
@@ -232,6 +254,44 @@ function renderRiskSentences() {
       </article>
     `;
   }).join("");
+}
+
+function renderSourceHighlight() {
+  const result = state.riskResult;
+  const assessments = new Map(result.risk_assessments.map((item) => [item.sentence_id, item]));
+  const mappings = [...result.source_mappings].sort((a, b) => a.document_start_offset - b.document_start_offset);
+  let cursor = 0;
+  const parts = [];
+  mappings.forEach((mapping) => {
+    if (mapping.document_start_offset > cursor) {
+      parts.push(escapeHtml(result.source_text.slice(cursor, mapping.document_start_offset)));
+    }
+    const assessment = assessments.get(mapping.sentence_id);
+    const level = assessment?.risk_level || "none";
+    const title = `${assessment?.risk_level_name || "未判断"} ${formatPercent(assessment?.risk_score || 0)}`;
+    parts.push(`<mark class="level-${escapeHtml(level)}" data-sentence-target="${escapeHtml(mapping.sentence_id)}" title="${escapeHtml(title)}">${escapeHtml(result.source_text.slice(mapping.document_start_offset, mapping.document_end_offset))}</mark>`);
+    cursor = Math.max(cursor, mapping.document_end_offset);
+  });
+  if (cursor < result.source_text.length) parts.push(escapeHtml(result.source_text.slice(cursor)));
+  el("#source-highlight").innerHTML = parts.join("");
+}
+
+function renderTopCases() {
+  const cases = state.riskResult.risk_summary.top_matched_cases;
+  el("#top-cases").innerHTML = cases.length ? cases.map((item, index) => `
+    <button class="top-case-item" type="button" data-case-id="${escapeHtml(item.case_id)}">
+      <span><b>TOP ${index + 1} · ${escapeHtml(item.case_id)}</b><em>${formatPercent(item.score)}</em></span>
+      <strong>${escapeHtml(item.case_title || item.violation_behavior.slice(0, 78))}</strong>
+      <small>${escapeHtml(item.matched_risk_tags.join(" · ") || item.risk_tags.join(" · "))}</small>
+    </button>
+  `).join("") : '<div class="inline-empty compact">没有达到检索门槛且标签对齐的案例。</div>';
+}
+
+function handleSourceHighlightClick(event) {
+  const target = event.target.closest("[data-sentence-target]");
+  if (!target) return;
+  const sentence = document.getElementById(`sentence-${target.dataset.sentenceTarget}`);
+  sentence?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function copyRiskResult() {

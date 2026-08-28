@@ -44,7 +44,9 @@ def test_text_query_endpoint_returns_risk_and_mapping_fields() -> None:
     assert len(payload["sentences"]) == 2
     assert set(payload["sentences"][0]) == {"query_id", "sentence_id", "scene", "text"}
     assert payload["sentences"][0]["sentence_id"] == payload["source_mappings"][0]["sentence_id"]
-    assert payload["schema_version"] == "3.0"
+    assert payload["schema_version"] == "4.0"
+    assert payload["extraction"]["checksum_sha256"]
+    assert "risk_findings" in payload["risk_summary"]
     assert len(payload["risk_assessments"]) == len(payload["sentences"])
     assert 0 <= payload["risk_summary"]["overall_score"] <= 1
 
