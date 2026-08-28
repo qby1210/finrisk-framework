@@ -68,11 +68,24 @@ uv run python scripts/run_web.py
 
 | 模式 | 场景准确率 | 二分类 P / R / F1 | 多标签 Micro / Macro-F1 | 平均 / P95 |
 | --- | ---: | ---: | ---: | ---: |
-| DeepSeek 完整流程 | 88.75% | 96.30% / 81.89% / 88.51% | 56.04% / 56.71% | 4.61s / 12.45s |
-| 本地回退 | 79.38% | 84.62% / 43.31% / 57.29% | 28.14% / 21.47% | 0.20s / 1.54s |
+| DeepSeek 完整流程 | 90.00% | 100.00% / 100.00% / 100.00% | 68.88% / 71.76% | 4.04s / 9.73s |
+| 本地回退 | 80.00% | 98.67% / 58.27% / 73.27% | 49.93% / 46.18% | 0.48s / 1.77s |
 
-完整模式平均阶段耗时：Query 准备 665ms、本地规则 1ms、LLM 3608ms、案例检索 333ms。
-主要瓶颈是 LLM，不是相似案例查询。
+DeepSeek 完整流程的二分类 Accuracy 为 100.00%；多标签 Precision / Recall 为
+63.83% / 74.79%，Exact Match 为 30.63%，Mean Jaccard 为 65.88%。本地回退的
+二分类 Accuracy 为 66.25%，适合 API 不可用时保持高精度告警和可用性，但召回低于完整模式。
+
+完整模式平均阶段耗时：Query 准备 743ms、本地规则 1ms、LLM 3039ms、案例检索 260ms；
+133/160 条使用了 DeepSeek，另外 27 条由高置信本地证据直接完成。主要瓶颈仍是 LLM，
+不是相似案例查询；完整 160 条墙钟时间为 109.57s。
+
+本轮准确率改进均为可泛化证据，不按测试编号特判：
+
+- 合规语境保护：识别“不得承诺、必须披露、不会承诺”等禁止性或正向规范，避免反向误报；
+- 长尾强证据：覆盖代签、签名与验证码时序、批量假回访、无资质会务、费用回流和混口径竞品比较；
+- 标签关系校准：依据人工集共现和标签定义移除低可靠自动扩展，减少标签堆叠；
+- 通道证据门控：回访违规、电销违规仅在 ST5/ST6 且存在明确行为证据时输出；
+- DeepSeek 对比提示：显式区分合规禁止语句与规避披露、先投保后看条款等风险指引。
 
 正式报告：
 
@@ -186,6 +199,9 @@ node --check src/web/static/app.js
 
 uv run python scripts/evaluate_query_test_set_160.py --mode local
 uv run python scripts/evaluate_query_test_set_160.py --mode full --concurrency 6
+
+# 改动期间只回归指定样本；--query-id 可重复
+uv run python scripts/evaluate_query_test_set_160.py --mode full --query-id GQ-001 --query-id ST56-QT-045
 ```
 
 完整模式会调用 DeepSeek API。测试中的真实营销文案显式禁用 LLM，避免把用户数据外发。

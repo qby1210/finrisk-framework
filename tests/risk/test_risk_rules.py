@@ -2,10 +2,15 @@
 
 from pathlib import Path
 
+from domain.query_models import QueryScene
 from domain.risk_models import RiskLevel
 from risk.calibration import RiskScorer, RiskThresholder
-from risk.detection import RuleRiskDetector
-from risk.pipeline import _explicit_content_labels, _looks_like_noncompliant_training_guidance
+from risk.detection import RuleRiskDetector, is_explicit_compliance_statement
+from risk.pipeline import (
+    _channel_label_supported,
+    _explicit_content_labels,
+    _looks_like_noncompliant_training_guidance,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,3 +60,53 @@ def test_training_channel_requires_noncompliant_guidance_evidence() -> None:
 
     assert _looks_like_noncompliant_training_guidance(risky)
     assert not _looks_like_noncompliant_training_guidance(compliant)
+
+
+def test_compliance_guard_distinguishes_prohibition_from_evasion() -> None:
+    detector = RuleRiskDetector(
+        PROJECT_ROOT / "data" / "risk" / "keyword_db" / "risk_keyword_db.json"
+    )
+    compliant = "讲解人员不得承诺收益，必须逐项说明责任免除和退保损失。"
+    risky = "退保损失无需介绍，红利不保证只是合同固定用语。"
+    safe_live = "直播中不会展示收益预测，也不会承诺回本或固定领取结果。"
+
+    assert is_explicit_compliance_statement(compliant)
+    assert is_explicit_compliance_statement(safe_live)
+    assert not is_explicit_compliance_statement(risky)
+    safe_result = detector.detect(compliant)
+    assert safe_result.safe_signal
+    assert safe_result.risk_score == 0
+    assert not detector.detect(risky).safe_signal
+
+
+def test_strong_rules_cover_audit_and_sales_tail_risks() -> None:
+    detector = RuleRiskDetector(
+        PROJECT_ROOT / "data" / "risk" / "keyword_db" / "risk_keyword_db.json"
+    )
+    samples = {
+        "家属可以代签投保文件。": "客户信息不真实",
+        "电子签名时间早于验证码发送时间十二分钟。": "客户信息不真实",
+        "七份回访录音均由同一员工手机上传。": "回访违规",
+        "活动由没有保险销售资质的会务公司承办并讲解产品。": "委托无资质机构销售",
+        "保障不限病史，门诊住院都能报，理赔不卡。": "虚假宣传",
+        "客户可以按最高演示数值估算最终领取金额。": "夸大收益",
+        "复利滚存预计可达5.6%，可覆盖退休补充需求。": "夸大收益",
+        "由团队从服务费中补贴首年保费。": "回扣返佣",
+        "A公司拒赔新闻、B公司演示收益和C公司投诉数量放在一起，不说明统计口径。": "贬低竞品",
+    }
+
+    for sample_text, expected_label in samples.items():
+        result = detector.detect(sample_text)
+        assert result.strong_signal, sample_text
+        assert expected_label in result.risk_labels, sample_text
+
+
+def test_channel_labels_require_violation_evidence_and_supported_scene() -> None:
+    st5 = QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK
+    st4 = QueryScene.ST4_MEETING_MATERIAL
+
+    assert _channel_label_supported("回访违规", "回访时暂停录音，只保留第二次结果。", st5)
+    assert not _channel_label_supported("回访违规", "回访前完整说明条款。", st5)
+    assert not _channel_label_supported("回访违规", "回访时暂停录音，只保留第二次结果。", st4)
+    assert _channel_label_supported("电销违规", "客户明确拒绝后仍换号码继续联系。", st5)
+    assert not _channel_label_supported("电销违规", "坐席确认客户愿意后再介绍产品。", st5)

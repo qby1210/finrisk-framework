@@ -17,8 +17,8 @@ from domain.query_models import (
 from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
 
 TAXONOMY_VERSION = "query-scene-2.0"
-CLASSIFIER_VERSION = "query-scene-rule-llm-3.0"
-RULE_VERSION = "query-scene-rules-3.0"
+CLASSIFIER_VERSION = "query-scene-rule-llm-3.1"
+RULE_VERSION = "query-scene-rules-3.1"
 
 SCENE_NAMES = {
     QueryScene.ST1_POSTER_SMS_SOCIAL: "海报/短信/朋友圈短文案",
@@ -106,6 +106,12 @@ _RULES = (
         "出现直播或口播惯用表达",
     ),
     _Rule(
+        QueryScene.ST2_LIVE_SHORT_VIDEO,
+        re.compile(r"(?:我(?:来|跟你|给你|说)|听我说|发到直播间|评论区发来|平台负责|先把名额占住)"),
+        2.4,
+        "出现第一人称实时口播或直播互动表达",
+    ),
+    _Rule(
         QueryScene.ST3_PRODUCT_INTRO_DETAIL,
         re.compile(r"(?:产品介绍|产品详情|详情页|产品要素|产品说明书|产品概述)"),
         7.0,
@@ -175,9 +181,7 @@ _RULES = (
     ),
     _Rule(
         QueryScene.ST3_PRODUCT_INTRO_DETAIL,
-        re.compile(
-            r"(?:保险详情|险种详情|产品宣传页|保障详情|对比宣传页|产品对比页|投保本产品)"
-        ),
+        re.compile(r"(?:保险详情|险种详情|产品宣传页|保障详情|对比宣传页|产品对比页|投保本产品)"),
         7.5,
         "出现产品详情或产品页面标识",
     ),
@@ -208,6 +212,15 @@ _RULES = (
         ),
         8.5,
         "出现财务、系统、审计或后台事实记录标识",
+    ),
+    _Rule(
+        QueryScene.ST6_PENALTY_BACKEND_FACT,
+        re.compile(
+            r"(?:检查组|检查人员|稽核人员|监管人员).{0,24}(?:调取|抽取|核对|发现)|"
+            r"(?:时间戳|上传ip|上传IP|门禁记录|签名时间|验证码发送时间).{0,28}(?:显示|早于|一致|异常)"
+        ),
+        7.8,
+        "出现检查取证、时间戳或后台异常事实",
     ),
 )
 

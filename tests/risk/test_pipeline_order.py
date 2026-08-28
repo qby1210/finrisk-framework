@@ -88,9 +88,7 @@ class RecordingRetrieval:
 
 
 def detector() -> RuleRiskDetector:
-    return RuleRiskDetector(
-        PROJECT_ROOT / "data" / "risk" / "keyword_db" / "risk_keyword_db.json"
-    )
+    return RuleRiskDetector(PROJECT_ROOT / "data" / "risk" / "keyword_db" / "risk_keyword_db.json")
 
 
 def test_llm_prompt_has_full_short_context_but_no_case_payload() -> None:
@@ -98,7 +96,7 @@ def test_llm_prompt_has_full_short_context_but_no_case_payload() -> None:
     retrieval = RecordingRetrieval()
     query = asyncio.run(
         prepare_query(
-            "产品详情：本金绝对安全，保证年化收益8%。具体责任与收益以合同为准。",
+            "产品详情：本金绝对安全，保证年化收益8%。具体责任与收益需要结合完整材料判断。",
             QuerySceneClassifier(None),
             input_type=QueryInputType.TEXT,
         )

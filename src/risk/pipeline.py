@@ -155,7 +155,9 @@ class RiskAssessmentPipeline:
         )
 
     def _local_direct(self, rules: RuleDetectionResult) -> bool:
-        return rules.strong_signal and rules.confidence >= self.local_direct_confidence
+        return rules.safe_signal or (
+            rules.strong_signal and rules.confidence >= self.local_direct_confidence
+        )
 
     async def _llm_assess(
         self,
@@ -245,6 +247,10 @@ class RiskAssessmentPipeline:
                             "标签存在语义重复、上下位和包含关系，不要求互斥；只要语义明确相关可同时选择，"
                             "但不得仅因词面命中而堆砌标签。无明显风险时risk_score应低于0.20且标签为空。"
                             "带有明确条件、风险提示、合同限定、个人经历限定或正常流程描述时不要误判。"
+                            "尤其注意：材料引用风险词来禁止该行为，不等于材料正在实施该行为。"
+                            "例如‘不得承诺收益、不能把演示当保证、客户拒绝后停止联系、必须完整披露’"
+                            "均属于合规要求，应判低于0.20且标签为空。相反，‘无需介绍免责、先投保后看条款、"
+                            "不区分保证和非保证、由家属代签’属于明确风险。"
                             "只输出JSON对象："
                             '{"items":[{"sentence_id":"...","risk_score":0.0,'
                             '"risk_labels":[],"evidence":[],"reasoning":"简短中文理由"}]}。\n'
@@ -348,8 +354,7 @@ class RiskAssessmentPipeline:
             if item.sentence_id == document_label_target_id:
                 content_labels.extend(document_content_labels)
             if (
-                query.classification.scene
-                is QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK
+                query.classification.scene is QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK
                 and _looks_like_noncompliant_training_guidance(item.text)
             ):
                 content_labels.append("培训材料违规")
@@ -384,6 +389,11 @@ class RiskAssessmentPipeline:
         if item.rules.risk_score >= self.risk_display_threshold or item.rules.strong_signal:
             candidates.extend(item.rules.risk_labels)
         candidates.extend(_scene_channel_labels(item.sentence, final_score))
+        candidates = [
+            label
+            for label in candidates
+            if _channel_label_supported(label, item.sentence.text, item.sentence.scene)
+        ]
         return expand_related_labels(candidates, self._taxonomy_set, limit=10)
 
     async def _retrieve_eligible(
@@ -528,24 +538,30 @@ def _fallback_reasoning(rules: RuleDetectionResult, level: RiskLevel) -> str:
 def _document_channel_labels(scene: QueryScene, text: str) -> list[str]:
     if scene is QueryScene.ST4_MEETING_MATERIAL:
         return ["产品说明会违规"]
-    if scene is not QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK:
+    if scene not in {
+        QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        QueryScene.ST6_PENALTY_BACKEND_FACT,
+    }:
         return []
     marker_match = re.match(r"^【材料载体：([^】]+)】\s*", text)
     marker = marker_match.group(1) if marker_match else ""
-    if marker == "内部销售培训材料":
-        return ["培训材料违规"]
-    if marker == "电销话术材料":
-        return ["电销违规"]
-    if marker == "客户回访材料":
-        return ["回访违规"]
+    if scene is QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK:
+        if marker == "内部销售培训材料":
+            return ["培训材料违规"]
+        if marker == "电销话术材料":
+            return ["电销违规"]
+        if marker == "客户回访材料":
+            return ["回访违规"]
     body = text[marker_match.end() :] if marker_match else text
     labels: list[str] = []
-    if any(keyword in body for keyword in ("培训材料", "培训课件", "内部培训", "讲师备注")):
+    if scene is QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK and any(
+        keyword in body for keyword in ("培训材料", "培训课件", "内部培训", "讲师备注")
+    ):
         labels.append("培训材料违规")
 
-    if any(keyword in body for keyword in ("电销", "电话销售", "坐席", "致电", "呼叫")):
+    if _channel_label_supported("电销违规", body, scene):
         labels.append("电销违规")
-    if "回访" in body:
+    if _channel_label_supported("回访违规", body, scene):
         labels.append("回访违规")
     return labels
 
@@ -577,6 +593,7 @@ def _looks_like_noncompliant_training_guidance(text: str) -> bool:
 
 def _explicit_content_labels(text: str) -> list[str]:
     """从明确措辞补充容易漏检的事实标签，不改变风险分值。"""
+    labels: list[str] = []
     fabricated_yield_patterns = (
         r"(?:收益|年化|利率).{0,12}\d+(?:\.\d+)?\s*%.{0,16}(?:写进|写入|载入).{0,6}合同",
         r"(?:过去|历史).{0,24}(?:收益|利率).{0,12}\d+(?:\.\d+)?\s*%.{0,32}未来.{0,16}(?:保持|维持|达到)",
@@ -586,8 +603,73 @@ def _explicit_content_labels(text: str) -> list[str]:
         r"\d+(?:\.\d+)?\s*%.{0,24}(?:手工|自行).{0,10}(?:测算|换算).{0,40}(?:不是|并非).{0,24}(?:历史|保证|合同)",
     )
     if any(re.search(pattern, text, re.DOTALL) for pattern in fabricated_yield_patterns):
-        return ["虚构收益率"]
-    return []
+        labels.append("虚构收益率")
+
+    if re.search(r"(?:家属|亲属).{0,10}(?:可以|可由|安排|实际由)?(?:代签|代填|代操作)", text):
+        labels.extend(("客户信息不真实", "代理人管理不到位"))
+
+    if re.search(
+        r"(?:无|没有|未取得|不具备).{0,8}(?:保险)?销售资质.{0,18}(?:会务|咨询|第三方|机构|公司)|"
+        r"(?:会务|咨询|第三方).{0,6}公司.{0,24}(?:负责|承办).{0,32}(?:产品讲解|保险责任|投保流程|需求访谈)",
+        text,
+        re.DOTALL,
+    ):
+        labels.extend(("委托无资质机构销售", "代理人管理不到位"))
+
+    if re.search(
+        r"(?:负责人|主管).{0,80}(?:收到|已知).{0,20}(?:异常|提示|清单).{0,50}(?:未|没有)(?:停用|核查|处置)|"
+        r"(?:系统|质检|机构).{0,24}(?:未|没有).{0,12}(?:拦截|覆盖|复核|重检).{0,18}(?:异常|相关业务)?|"
+        r"(?:操作|登录|审批)?账号.{0,12}(?:属于|为|使用).{0,8}(?:团队)?(?:主管|负责人|管理员)",
+        text,
+        re.DOTALL,
+    ):
+        labels.append("代理人管理不到位")
+
+    if re.search(
+        r"(?:多份|大量|[一二三四五六七八九十百]+\s*份|\d+\s*(?:份|段|条)).{0,12}(?:回访)?录音.{0,36}(?:同一.{0,8}(?:手机|设备|ip)|时长.{0,8}(?:一致|相同)|背景声.{0,8}(?:一致|相同))|"
+        r"(?:客户|投保人).{0,12}(?:表示|称).{0,8}(?:从未|没有|未曾).{0,8}(?:接到|接受|完成).{0,6}回访",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    ):
+        labels.extend(("回访违规", "客户信息不真实"))
+
+    if re.search(
+        r"(?:资金|款项|费用).{0,45}(?:转入|流入|回流).{0,24}(?:营销|销售|员工).{0,12}(?:账户|成员).{0,80}(?:支付|返还|发放).{0,24}(?:新投保|投保)客户",
+        text,
+        re.DOTALL,
+    ):
+        labels.extend(("回扣返佣", "合同外利益"))
+
+    return list(dict.fromkeys(labels))
+
+
+def _channel_label_supported(label: str, text: str, scene: QueryScene) -> bool:
+    """通道违规标签需要行为证据；仅出现“电话、回访”等载体词不构成违规。"""
+    if label not in {"回访违规", "电销违规"}:
+        return True
+    if scene not in {
+        QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        QueryScene.ST6_PENALTY_BACKEND_FACT,
+    }:
+        return False
+    patterns: tuple[str, ...]
+    if label == "回访违规":
+        patterns = (
+            r"回访.{0,28}(?:代接|冒充|暂停录音|重新录制|只保留|统一回答|答案预填|同事.{0,8}确认)",
+            r"(?:暂不提交|结束当前).{0,18}(?:录音|回访).{0,30}(?:重新回访|重新开始|第二次)",
+            r"(?:多份|大量|[一二三四五六七八九十百]+\s*份|\d+\s*(?:份|段|条)).{0,12}(?:回访)?录音.{0,40}(?:同一.{0,8}(?:手机|设备|ip)|时长.{0,8}(?:一致|相同)|背景声.{0,8}(?:一致|相同))",
+            r"(?:客户|投保人).{0,18}(?:从未|没有|未曾|否认).{0,16}(?:接到回访|作出.{0,6}确认|完成回访)",
+            r"录音.{0,20}客户.{0,12}(?:没看|未收到|不清楚).{0,24}后台.{0,12}(?:勾选|记录).{0,12}(?:知悉|完成)",
+        )
+    else:
+        patterns = (
+            r"(?:开场|通话).{0,24}(?:别提|不要|不报|不主动报).{0,12}(?:保险公司|保险|购买保险|公司全称)",
+            r"(?:客户)?(?:不同意|明确拒绝|拒绝).{0,36}(?:继续呼叫|继续联系|换.{0,4}(?:号码|工号)|不同号码|另一工号)",
+            r"(?:兼职|无资质|未取得资质).{0,40}(?:话术|拨打|呼叫|直接推荐具体保险)",
+            r"(?:社区调查|健康调查).{0,32}(?:收集.{0,12}(?:身份证|银行卡|验证码)|推荐具体保险)",
+        )
+    return any(re.search(pattern, text, re.DOTALL | re.IGNORECASE) for pattern in patterns)
+
 
 def _scene_channel_labels(sentence: RiskQuerySentence, score: float) -> list[str]:
     if score < 0.40:
@@ -599,9 +681,9 @@ def _scene_channel_labels(sentence: RiskQuerySentence, score: float) -> list[str
         labels: list[str] = []
         if any(keyword in text for keyword in ("培训", "课件", "内部话术")):
             labels.append("培训材料违规")
-        if "回访" in text:
+        if _channel_label_supported("回访违规", text, sentence.scene):
             labels.append("回访违规")
-        if any(keyword in text for keyword in ("电销", "电话", "坐席", "致电")):
+        if _channel_label_supported("电销违规", text, sentence.scene):
             labels.append("电销违规")
         return labels
     return []

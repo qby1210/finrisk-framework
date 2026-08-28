@@ -7,14 +7,13 @@ from pathlib import Path
 
 _RELATED_LABELS: dict[str, tuple[str, ...]] = {
     "欺骗投保人": ("销售误导",),
-    "夸大收益": ("销售误导", "虚假宣传"),
+    "夸大收益": ("销售误导",),
     "承诺收益": ("销售误导",),
-    "保证收益": ("承诺收益", "夸大收益", "销售误导"),
-    "虚构收益率": ("夸大收益", "虚假宣传", "销售误导"),
+    "保证收益": ("销售误导",),
+    "虚构收益率": ("夸大收益",),
     "弱化风险提示": ("隐瞒重要信息", "销售误导"),
     "隐瞒重要信息": ("销售误导",),
     "赠送利益": ("合同外利益", "诱导投保"),
-    "合同外利益": ("赠送利益",),
     "回扣返佣": ("合同外利益",),
     "贬低竞品": ("不当比较",),
 }
@@ -67,9 +66,7 @@ def expand_related_labels(
 
     expanded = list(dict.fromkeys(label for label in labels if label in allowed))
     for label in tuple(expanded):
-        expanded.extend(
-            related for related in _RELATED_LABELS.get(label, ()) if related in allowed
-        )
+        expanded.extend(related for related in _RELATED_LABELS.get(label, ()) if related in allowed)
     expanded = list(dict.fromkeys(expanded))
     if len(expanded) > 1 and "其他" in expanded:
         expanded.remove("其他")

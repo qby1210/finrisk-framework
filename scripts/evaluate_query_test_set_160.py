@@ -38,6 +38,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--mode", choices=("full", "local"), default="full")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--query-id",
+        action="append",
+        default=[],
+        help="仅评测指定 query_id；可重复传入，适合改动后的代表样本回归",
+    )
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument(
@@ -348,6 +354,15 @@ def render_markdown(report: dict[str, object]) -> str:
 
 async def async_main(args: argparse.Namespace) -> int:
     dataset_meta, selected_samples = load_dataset(args.dataset)
+    if args.query_id:
+        requested_ids = set(args.query_id)
+        known_ids = {str(sample["query_id"]) for sample in selected_samples}
+        unknown_ids = sorted(requested_ids - known_ids)
+        if unknown_ids:
+            raise ValueError(f"测试集不存在 query_id: {', '.join(unknown_ids)}")
+        selected_samples = [
+            sample for sample in selected_samples if str(sample["query_id"]) in requested_ids
+        ]
     if args.limit > 0:
         selected_samples = selected_samples[: args.limit]
     if args.concurrency < 1 or args.concurrency > 8:
