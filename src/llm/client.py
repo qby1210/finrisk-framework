@@ -1,34 +1,37 @@
-"""项目唯一的 OpenAI-compatible 大模型客户端。"""
+"""全项目统一的 Pi Agent 适配器；Python 不直接请求模型供应商。"""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
+from pathlib import Path
 from time import perf_counter
 from typing import Protocol
+from urllib.parse import urlparse
+from uuid import uuid4
 
-import httpx
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from llm.types import JsonChatRequest, JsonChatResponse
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-v4-flash"
-_RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+DEFAULT_MODEL = "deepseek-flash"
+PI_RUNTIME_DIR = Path(__file__).resolve().parents[2] / "agent_runtime"
 
 
 class LLMConfigurationError(RuntimeError):
-    """大模型调用所需环境变量缺失。"""
+    """模型或 Agent 运行参数不合法。"""
 
 
 class LLMProviderError(RuntimeError):
-    """大模型供应商请求失败或返回格式不正确。"""
+    """Agent、模型供应商或结构化提交失败。"""
 
 
 class LLMClient(Protocol):
-    """Offline、Query、Risk 共用的最小 JSON 调用接口。"""
+    """Offline、Query、Risk 共用的最小结构化审查接口。"""
 
     @property
     def model_name(self) -> str: ...
@@ -38,8 +41,6 @@ class LLMClient(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class LLMSettings:
-    """DeepSeek/OpenAI-compatible 服务连接参数。"""
-
     api_key: str = field(repr=False)
     base_url: str = DEFAULT_BASE_URL
     model: str = DEFAULT_MODEL
@@ -49,147 +50,269 @@ class LLMSettings:
     max_retries: int = 2
     max_concurrency: int = 6
     retry_base_seconds: float = 0.6
+    agent_max_turns: int = 4
+    node_binary: str = "node"
 
 
-class _ProviderMessage(BaseModel):
-    content: str
+class _BridgeError(BaseModel):
+    code: str
+    message: str
+    retryable: bool = False
 
 
-class _ProviderChoice(BaseModel):
-    message: _ProviderMessage
-    finish_reason: str | None = None
+class _BridgeReply(BaseModel):
+    id: str | None = None
+    result: JsonChatResponse | None = None
+    error: _BridgeError | None = None
+    type: str | None = None
+    runtime: str | None = None
+    version: str | None = None
 
 
-class _ProviderResponse(BaseModel):
-    model: str
-    choices: list[_ProviderChoice] = Field(min_length=1)
-    usage: dict[str, object] | None = None
+class PiAgentLLMClient:
+    """复用本地 Node 工作进程，由 Pi 管理状态、工具循环和事件。"""
 
-
-class OpenAICompatibleLLMClient:
-    """通过连接池复用、限流和短重试调用 DeepSeek JSON 接口。"""
+    runtime_name = "pi-agent-core"
+    runtime_version = "1.2.0"
 
     def __init__(self, settings: LLMSettings) -> None:
         if settings.thinking not in {"enabled", "disabled"}:
             raise LLMConfigurationError("FINRISK_LLM_THINKING 只能是 enabled 或 disabled")
         if settings.max_retries < 0 or settings.max_concurrency < 1:
             raise LLMConfigurationError("LLM 重试次数和最大并发配置不合法")
+        if not 1 <= settings.agent_max_turns <= 8:
+            raise LLMConfigurationError("FINRISK_AGENT_MAX_TURNS 必须在 1 到 8 之间")
+        if min(settings.connect_timeout_seconds, settings.read_timeout_seconds) <= 0:
+            raise LLMConfigurationError("Agent 超时必须大于零")
+        if settings.retry_base_seconds < 0:
+            raise LLMConfigurationError("Agent 重试等待时间不得为负数")
         self._settings = settings
         self._semaphore = asyncio.Semaphore(settings.max_concurrency)
-        timeout = httpx.Timeout(
-            settings.read_timeout_seconds,
-            connect=settings.connect_timeout_seconds,
-        )
-        limits = httpx.Limits(
-            max_connections=max(4, settings.max_concurrency * 2),
-            max_keepalive_connections=max(2, settings.max_concurrency),
-            keepalive_expiry=30.0,
-        )
-        self._client = httpx.AsyncClient(
-            timeout=timeout,
-            limits=limits,
-            headers={
-                "Authorization": f"Bearer {settings.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "FinRisk/1.1",
-            },
-        )
+        self._start_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
+        self._process: asyncio.subprocess.Process | None = None
+        self._reader_task: asyncio.Task[None] | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        self._ready: asyncio.Future[None] | None = None
+        self._pending: dict[str, asyncio.Future[_BridgeReply]] = {}
+        self._closed = False
 
     @property
     def model_name(self) -> str:
         return self._settings.model
 
-    async def aclose(self) -> None:
-        """关闭共享连接池。"""
+    @property
+    def runtime_available(self) -> bool:
+        return bool(
+            shutil.which(self._settings.node_binary)
+            and (PI_RUNTIME_DIR / "node_modules" / "@earendil-works" / "pi-agent-core").is_dir()
+        )
 
-        await self._client.aclose()
+    @property
+    def worker_running(self) -> bool:
+        return bool(
+            self._process is not None
+            and self._process.returncode is None
+            and self._reader_task is not None
+            and not self._reader_task.done()
+        )
+
+    async def start(self) -> None:
+        """预热本地工作进程；不请求模型、不消耗模型额度。"""
+        await self._ensure_worker()
 
     async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
-        """关闭思考模式并严格解析 JSON，瞬时故障最多短重试两次。"""
-
-        body: dict[str, object] = {
-            "model": self._settings.model,
-            "messages": [message.model_dump() for message in request.messages],
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "response_format": {"type": "json_object"},
-            "thinking": {"type": self._settings.thinking},
-        }
-        body.update(request.extra_body)
         started = perf_counter()
         async with self._semaphore:
             for attempt in range(1, self._settings.max_retries + 2):
-                provider_response: _ProviderResponse | None = None
+                await self._ensure_worker()
+                request_id = uuid4().hex
+                future: asyncio.Future[_BridgeReply] = asyncio.get_running_loop().create_future()
+                self._pending[request_id] = future
                 try:
-                    response = await self._client.post(
-                        f"{self._settings.base_url.rstrip('/')}/chat/completions",
-                        json=body,
+                    await self._send(
+                        {
+                            "type": "run",
+                            "id": request_id,
+                            "request": request.model_dump(),
+                            "settings": {
+                                "model": self._settings.model,
+                                "base_url": self._settings.base_url,
+                                "thinking": self._settings.thinking,
+                                "read_timeout_seconds": self._settings.read_timeout_seconds,
+                                "agent_max_turns": self._settings.agent_max_turns,
+                            },
+                        }
                     )
-                    response.raise_for_status()
-                    provider_response = _ProviderResponse.model_validate(response.json())
-                    parsed = json.loads(provider_response.choices[0].message.content)
-                    data = TypeAdapter(dict[str, object]).validate_python(parsed)
-                    return JsonChatResponse(
-                        data=data,
-                        model=provider_response.model,
-                        usage=provider_response.usage or {},
-                        finish_reason=provider_response.choices[0].finish_reason,
-                        latency_seconds=round(perf_counter() - started, 6),
-                        attempts=attempt,
+                    reply = await asyncio.wait_for(
+                        future, timeout=self._settings.read_timeout_seconds + 5
                     )
-                except httpx.TimeoutException as error:
-                    if attempt <= self._settings.max_retries:
-                        await self._backoff(attempt)
-                        continue
-                    raise LLMProviderError("大模型请求超时") from error
-                except httpx.HTTPStatusError as error:
-                    if (
-                        error.response.status_code in _RETRYABLE_STATUS_CODES
-                        and attempt <= self._settings.max_retries
-                    ):
-                        await self._backoff(attempt)
-                        continue
-                    raise LLMProviderError(
-                        f"大模型服务返回 HTTP {error.response.status_code}"
-                    ) from error
-                except (
-                    httpx.HTTPError,
-                    json.JSONDecodeError,
-                    ValidationError,
-                    ValueError,
-                ) as error:
-                    if self._hit_length_limit(provider_response):
-                        raise LLMProviderError("大模型输出达到 max_tokens 上限被截断") from error
-                    raise LLMProviderError("大模型服务返回了无法解析的响应") from error
-        raise LLMProviderError("大模型请求未返回结果")  # pragma: no cover
+                    if reply.result is not None:
+                        return reply.result.model_copy(
+                            update={
+                                "attempts": attempt,
+                                "latency_seconds": round(perf_counter() - started, 6),
+                            }
+                        )
+                    if reply.error is not None:
+                        if reply.error.retryable and attempt <= self._settings.max_retries:
+                            await asyncio.sleep(
+                                self._settings.retry_base_seconds * 2 ** (attempt - 1)
+                            )
+                            continue
+                        raise LLMProviderError(reply.error.message)
+                    raise LLMProviderError("Pi Agent 返回了无效的结构化响应")
+                except (TimeoutError, asyncio.CancelledError):
+                    await self._cancel(request_id)
+                    task = asyncio.current_task()
+                    if task is not None and task.cancelling():
+                        raise
+                    raise LLMProviderError("Pi Agent 审查超时") from None
+                finally:
+                    self._pending.pop(request_id, None)
+        raise LLMProviderError("Pi Agent 未返回结果")  # pragma: no cover
 
-    async def _backoff(self, attempt: int) -> None:
-        await asyncio.sleep(self._settings.retry_base_seconds * (2 ** (attempt - 1)))
+    async def _ensure_worker(self) -> None:
+        if self._closed:
+            raise LLMProviderError("Pi Agent 客户端已关闭")
+        async with self._start_lock:
+            if (
+                self._process is not None
+                and self._process.returncode is None
+                and self._reader_task is not None
+                and not self._reader_task.done()
+            ):
+                return
+            if self._process is not None:
+                await self._stop_worker()
+            if not self.runtime_available:
+                raise LLMProviderError(
+                    "Pi Agent 依赖未就绪；需 Node.js 22.19+，并在 agent_runtime 执行 npm ci"
+                )
+            self._ready = asyncio.get_running_loop().create_future()
+            worker_env = os.environ.copy()
+            worker_env["FINRISK_PI_API_KEY"] = self._settings.api_key
+            try:
+                self._process = await asyncio.create_subprocess_exec(
+                    self._settings.node_binary,
+                    str(PI_RUNTIME_DIR / "worker.mjs"),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=PI_RUNTIME_DIR,
+                    env=worker_env,
+                    limit=8 * 1024 * 1024,
+                    creationflags=0x08000000 if os.name == "nt" else 0,
+                )
+                self._reader_task = asyncio.create_task(self._read_replies(self._process))
+                self._stderr_task = asyncio.create_task(self._drain_stderr(self._process))
+                await asyncio.wait_for(self._ready, self._settings.connect_timeout_seconds)
+            except (OSError, TimeoutError, LLMProviderError) as error:
+                reason = (
+                    "启动超时"
+                    if isinstance(error, TimeoutError)
+                    else f"系统错误 {error.errno}"
+                    if isinstance(error, OSError)
+                    else "进程未就绪"
+                )
+                await self._stop_worker()
+                raise LLMProviderError(
+                    f"无法启动本地 Pi Agent（{reason}），请检查 Node.js 和 npm 依赖"
+                ) from None
+
+    async def _send(self, payload: dict[str, object]) -> None:
+        process = self._process
+        if process is None or process.stdin is None or process.returncode is not None:
+            raise LLMProviderError("Pi Agent 工作进程不可用")
+        encoded = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+        async with self._write_lock:
+            try:
+                process.stdin.write(encoded)
+                await process.stdin.drain()
+            except (OSError, ConnectionError):
+                raise LLMProviderError("Pi Agent 工作进程连接中断") from None
+
+    async def _cancel(self, request_id: str) -> None:
+        try:
+            await self._send({"type": "cancel", "id": request_id})
+        except LLMProviderError:
+            pass
+
+    async def _read_replies(self, process: asyncio.subprocess.Process) -> None:
+        assert process.stdout is not None
+        try:
+            while raw := await process.stdout.readline():
+                reply = _BridgeReply.model_validate_json(raw)
+                if reply.type == "ready":
+                    if self._ready is not None and not self._ready.done():
+                        self._ready.set_result(None)
+                elif reply.id is not None and reply.id in self._pending:
+                    pending = self._pending[reply.id]
+                    if not pending.done():
+                        pending.set_result(reply)
+        except (ValueError, ValidationError, OSError):
+            pass
+        finally:
+            error = LLMProviderError("Pi Agent 工作进程中断，当前审查未完成")
+            if self._ready is not None and not self._ready.done():
+                self._ready.set_exception(error)
+            for pending in self._pending.values():
+                if not pending.done():
+                    pending.set_exception(error)
 
     @staticmethod
-    def _hit_length_limit(provider_response: _ProviderResponse | None) -> bool:
-        """JSON 解析失败时区分输出截断与普通格式错误。"""
+    async def _drain_stderr(process: asyncio.subprocess.Process) -> None:
+        assert process.stderr is not None
+        while await process.stderr.read(4096):
+            pass  # 不把可能含供应商请求内容的异常原样写入日志。
 
-        if provider_response is None or not provider_response.choices:
-            return False
-        return provider_response.choices[0].finish_reason == "length"
+    async def _stop_worker(self) -> None:
+        process, self._process = self._process, None
+        if process is not None and process.returncode is None:
+            if process.stdin is not None:
+                process.stdin.close()
+            try:
+                await asyncio.wait_for(process.wait(), 3)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+        for task in (self._reader_task, self._stderr_task):
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    async def aclose(self) -> None:
+        self._closed = True
+        await self._stop_worker()
 
 
-def create_llm_client_from_env() -> OpenAICompatibleLLMClient | None:
-    """从环境变量创建客户端；未配置密钥时返回 None。"""
+# 旧调用者导入名继续可用，其实现也统一经过 Pi，不保留 HTTP 直调通路。
+OpenAICompatibleLLMClient = PiAgentLLMClient
 
+
+def create_llm_client_from_env() -> PiAgentLLMClient | None:
     api_key = os.getenv("FINRISK_LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         return None
-    settings = LLMSettings(
-        api_key=api_key,
-        base_url=os.getenv("FINRISK_LLM_BASE_URL", DEFAULT_BASE_URL),
-        model=os.getenv("FINRISK_LLM_MODEL", DEFAULT_MODEL),
-        thinking=os.getenv("FINRISK_LLM_THINKING", "disabled"),
-        connect_timeout_seconds=float(os.getenv("FINRISK_LLM_CONNECT_TIMEOUT", "10")),
-        read_timeout_seconds=float(os.getenv("FINRISK_LLM_READ_TIMEOUT", "90")),
-        max_retries=int(os.getenv("FINRISK_LLM_MAX_RETRIES", "2")),
-        max_concurrency=int(os.getenv("FINRISK_LLM_MAX_CONCURRENCY", "6")),
-        retry_base_seconds=float(os.getenv("FINRISK_LLM_RETRY_BASE_SECONDS", "0.6")),
+    base_url = os.getenv("FINRISK_LLM_BASE_URL", DEFAULT_BASE_URL)
+    model = os.getenv("FINRISK_LLM_MODEL", DEFAULT_MODEL)
+    if urlparse(base_url).hostname == "api.deepseek.com" and model in {
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-vision-exp",
+    }:
+        model = DEFAULT_MODEL
+    return PiAgentLLMClient(
+        LLMSettings(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            thinking=os.getenv("FINRISK_LLM_THINKING", "disabled"),
+            connect_timeout_seconds=float(os.getenv("FINRISK_LLM_CONNECT_TIMEOUT", "10")),
+            read_timeout_seconds=float(os.getenv("FINRISK_LLM_READ_TIMEOUT", "90")),
+            max_retries=int(os.getenv("FINRISK_LLM_MAX_RETRIES", "2")),
+            max_concurrency=int(os.getenv("FINRISK_LLM_MAX_CONCURRENCY", "6")),
+            retry_base_seconds=float(os.getenv("FINRISK_LLM_RETRY_BASE_SECONDS", "0.6")),
+            agent_max_turns=int(os.getenv("FINRISK_AGENT_MAX_TURNS", "4")),
+            node_binary=os.getenv("FINRISK_NODE_BINARY", "node"),
+        )
     )
-    return OpenAICompatibleLLMClient(settings)

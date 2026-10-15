@@ -5,38 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="FinRisk 保险营销合规工作台：多模态风险判断、相似案例匹配和案例管理。"
+      content="FinRisk 保险营销合规工作台：结合上下文审查材料、查阅类案与原文证据。"
     />
     <title>FinRisk · 保险营销合规工作台</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=brand-red-20261015" />
+    <link rel="stylesheet" href="/static/styles.css?v=source-spans-2-brand-red" />
+    <link rel="preload" href="/static/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <a class="brand" href="#risk" data-route="risk" aria-label="FinRisk 首页">
-          <span class="brand-mark">F</span>
-          <span><strong>FinRisk</strong><small>保险合规分析系统</small></span>
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 4h10v4H7v4h8v4H7v4H3V4z"/></svg></span>
+          <span><strong>FinRisk</strong></span>
         </a>
         <nav class="workspace-nav" aria-label="工作台功能">
           <button class="nav-item is-active" type="button" data-view="risk">
-            <span class="nav-icon">⌕</span><span>风险查询</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM9 11h6M9 15h4"/></svg><span>风险查询</span>
           </button>
           <button class="nav-item" type="button" data-view="case-entry">
-            <span class="nav-icon">＋</span><span>案例录入</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>案例录入</span>
           </button>
           <button class="nav-item" type="button" data-view="cases">
-            <span class="nav-icon">▦</span><span>案例管理</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v15H4zM4 10h16M9 10v10"/></svg><span>案例管理</span>
           </button>
         </nav>
         <div class="sidebar-note">
-          <span>本地优先</span>
-          <p>规则直出 · 动态复核<br />标签约束案例检索</p>
+          <span class="workspace-badge">本地工作区</span>
         </div>
       </aside>
 
       <div class="workspace">
         <header class="topbar">
-          <div><strong>保险营销合规智能审查</strong><small>Query 风险识别与案例佐证</small></div>
+          <div class="breadcrumb"><span>工作台</span><span aria-hidden="true">/</span><strong id="current-view-label">材料审查</strong></div>
           <div class="health" id="health-state">
             <span class="health-dot"></span><span id="health-text">正在连接本地服务</span>
           </div>
@@ -45,25 +46,26 @@
         <main>
           <section class="view is-visible" id="risk-view">
             <header class="view-heading">
-              <div><p class="eyebrow">RISK WORKBENCH</p><h1>风险查询</h1></div>
-              <p>支持文本、PDF、图片、TXT、Markdown 与 DOCX；结果可定位回原文。</p>
+              <div><p class="eyebrow">保险营销合规</p><h1>材料风险审查</h1></div>
+              <p>提交文案或业务材料，结合上下文检查风险，查阅相关处罚案例。</p>
+              <div class="feature-line"><span>保留问答语境</span><span>证据回到原文</span><span>支持人工复核</span></div>
             </header>
 
             <div class="query-layout">
               <section class="panel query-card" aria-labelledby="query-title">
                 <div class="panel-heading">
-                  <div><span class="step-badge">01</span><h2 id="query-title">提交待审内容</h2></div>
-                  <span class="pill">完整分析</span>
+                  <div><h2 id="query-title">待审材料</h2></div>
+                  <span class="subtle-note">文本与文件均可</span>
                 </div>
                 <div class="query-controls">
                   <div class="segmented" role="tablist" aria-label="Query 输入方式">
-                    <button class="is-active" type="button" data-query-mode="text">输入文字</button>
-                    <button type="button" data-query-mode="file">上传文件</button>
+                    <button class="is-active" type="button" role="tab" aria-selected="true" aria-controls="query-text-panel" data-query-mode="text">输入文字</button>
+                    <button type="button" role="tab" aria-selected="false" aria-controls="query-file-panel" data-query-mode="file">上传文件</button>
                   </div>
                   <label class="scene-field" for="query-scene">
                     <span>材料场景</span>
                     <select id="query-scene">
-                      <option value="">智能判断</option>
+                      <option value="">自动识别</option>
                       <option value="ST1_poster_sms_social">ST1 海报 / 短信 / 社交短文案</option>
                       <option value="ST2_live_short_video">ST2 直播 / 短视频 / 口播</option>
                       <option value="ST3_product_intro_detail">ST3 产品介绍 / 详情页</option>
@@ -73,15 +75,15 @@
                     </select>
                   </label>
                 </div>
-                <p class="field-hint">已知材料类型时可直接指定；选择后跳过场景模型判断，速度更快且结果可复核。</p>
+                <p class="field-hint">保留完整段落；对话材料建议带上“客户 / 顾问”等说话人标记。</p>
                 <div class="query-input is-visible" id="query-text-panel">
                   <label class="sr-only" for="query-text">待审查文字</label>
                   <textarea
                     id="query-text"
                     maxlength="1000000"
-                    placeholder="粘贴海报文案、口播脚本、产品介绍、会议材料、电销回访话术或后台业务事实……"
+                    placeholder="在这里粘贴待审材料。&#10;&#10;例如：&#10;客户：这款保险保证每年 8% 的收益吗？&#10;顾问：是的，可以这样理解。"
                   ></textarea>
-                  <span class="counter"><b id="query-count">0</b> / 1,000,000</span>
+                  <span class="counter"><b id="query-count">0</b> 字</span>
                 </div>
                 <div class="query-input" id="query-file-panel">
                   <label class="drop-zone" id="query-drop-zone" for="query-file">
@@ -90,39 +92,37 @@
                       type="file"
                       accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp,.txt,.md,.docx,.csv,.xlsx"
                     />
-                    <span class="upload-icon">↑</span>
+                    <span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v4h16v-4"/></svg></span>
                     <strong>拖入文件，或点击选择</strong>
                     <small>PDF、图片、TXT、Markdown、DOCX、CSV、XLSX · 最大 25 MB</small>
                     <span class="selected-file" id="query-file-name">尚未选择文件</span>
                   </label>
                 </div>
+                <div class="sample-row"><span>试试示例</span><button type="button" data-sample="dialogue">问答与承诺</button><button type="button" data-sample="quotation">反面话术</button><button type="button" data-sample="products">不同产品</button></div>
                 <div class="action-row">
-                  <p>案例只在风险分达到门槛后检索，不参与模型风险定性。</p>
+                  <p>判断会结合相邻语句；相关案例供复核时参考。</p>
                   <button class="primary-button" id="analyze-button" type="button">
-                    <span>开始分析</span><i class="spinner"></i>
+                    <span>开始审查</span><i class="spinner"></i>
                   </button>
                 </div>
                 <p class="form-error" id="query-error" role="alert"></p>
+                <p class="analysis-state" id="analysis-state" role="status" hidden></p>
               </section>
 
-              <aside class="panel pipeline-card">
-                <div class="panel-heading"><div><span class="step-badge">02</span><h2>分析链路</h2></div></div>
-                <ol class="pipeline-list">
-                  <li><b>1</b><span><strong>多模态内容抽取</strong><small>原生文本、OCR、页码、坐标与哈希</small></span></li>
-                  <li><b>2</b><span><strong>六类场景路由</strong><small>规则高置信直出，冲突时模型复核</small></span></li>
-                  <li><b>3</b><span><strong>逐句风险判断</strong><small>强规则 + 场景加权词 + 动态批量LLM</small></span></li>
-                  <li><b>4</b><span><strong>标签约束检索</strong><small>BM25 + 向量 + RRF + 本地重排</small></span></li>
-                </ol>
+              <aside class="usage-guide" aria-label="审查提示">
+                <div><strong>先看语境</strong><p>提问、否定和反面引用，含义不同。</p></div>
+                <div><strong>再看依据</strong><p>每条判断保留原句与前后文。</p></div>
+                <div><strong>最后复核</strong><p>没有检索到类案，也不能据此排除风险。</p></div>
               </aside>
             </div>
 
             <section class="panel results-panel" id="risk-results" aria-live="polite">
               <div class="empty-state" id="risk-empty">
-                <span>⌕</span><div><strong>等待一份 Query</strong><p>提交后查看整体结论、原文高亮、逐句风险和相似案例。</p></div>
+                <div><strong>审查结果将在这里显示</strong><p>先提交材料，或从上方载入一段示例。</p></div>
               </div>
               <div id="risk-content" hidden>
                 <div class="results-heading">
-                  <div><p class="eyebrow">ANALYSIS RESULT</p><h2>分析结果</h2></div>
+                  <div><h2>审查结果</h2><p class="subtle-note">结论、语境与原文放在一起核对</p></div>
                   <div class="result-actions">
                     <button class="quiet-button" id="copy-risk-result" type="button">复制结果摘要</button>
                     <button class="primary-button small" id="export-risk-report" type="button"><span>导出审查报告</span></button>
@@ -130,26 +130,35 @@
                 </div>
                 <div class="summary-grid" id="risk-summary"></div>
                 <div class="warning-list" id="risk-warnings"></div>
-                <div class="trace-bar">
+                <details class="processing-details"><summary>查看处理信息与判断来源</summary><div class="trace-bar">
                   <div id="classification-note"></div>
                   <div id="extraction-note"></div>
                   <div id="timing-note"></div>
-                </div>
+                </div><div id="agent-trace-note"></div>
                 <div class="classification-candidates" id="classification-candidates"></div>
+                </details>
 
                 <div class="insight-grid">
                   <section class="result-subpanel source-panel">
-                    <div class="subpanel-heading"><h3>原文风险高亮</h3><small>点击高亮定位逐句结果</small></div>
-                    <div class="source-highlight" id="source-highlight"></div>
+                    <div class="subpanel-heading"><h3>原文风险高亮</h3><small>点击任一句，与下方同编号判断对照</small></div>
+                    <div class="source-legend" aria-label="原文标记说明">
+                      <span><i class="swatch level-none"></i>无明显风险</span>
+                      <span><i class="swatch level-low"></i>低风险</span>
+                      <span><i class="swatch level-review"></i>疑似风险</span>
+                      <span><i class="swatch level-medium"></i>中风险</span>
+                      <span><i class="swatch level-high"></i>高风险</span>
+                    </div>
+                    <div class="source-highlight" id="source-highlight" aria-label="原文与风险所属句"></div>
+                    <p class="source-selection" id="source-selection" role="status" aria-live="polite">底色对应逐句风险等级；蓝框定位当前判断，蓝色下划线定位引用证据。</p>
                   </section>
                   <section class="result-subpanel top-cases-panel">
-                    <div class="subpanel-heading"><h3>Top 相似案例</h3><small>仅展示标签对齐结果</small></div>
+                    <div class="subpanel-heading"><h3>相关处罚案例</h3><small>候选参考 · 可比性待核验</small></div>
                     <div class="top-case-list" id="top-cases"></div>
                   </section>
                 </div>
 
                 <div class="sentence-toolbar">
-                  <div><h3>逐句结果</h3><span>风险分、标签、依据、位置和案例</span></div>
+                  <div><h3>逐句判断</h3><span>按完整表达与说话轮次划分，结合上下文审查</span></div>
                   <label>显示
                     <select id="risk-filter">
                       <option value="all">全部语句</option>
@@ -163,7 +172,7 @@
                 <section class="review-panel" aria-labelledby="review-title">
                   <div class="subpanel-heading">
                     <div><h3 id="review-title">人工复核留痕</h3><small>保存审核结论、修正标签和意见，支持追溯</small></div>
-                    <span class="pill">HUMAN IN THE LOOP</span>
+                    <span class="pill">人工复核</span>
                   </div>
                   <div class="review-grid">
                     <label><span>复核结论</span><select id="review-status"><option value="confirmed">确认模型结果</option><option value="corrected">已人工修正</option><option value="rejected">退回重新审查</option></select></label>
@@ -180,8 +189,8 @@
 
           <section class="view" id="case-entry-view">
             <header class="view-heading">
-              <div><p class="eyebrow">CASE INGESTION</p><h1>案例录入</h1></div>
-              <p>保持现有案例结构和数据源，新增文件继续进入同一个案例库。</p>
+              <div><p class="eyebrow">案例资料</p><h1>案例录入</h1></div>
+              <p>上传监管处罚材料，保留出处与原文，加入统一案例库。</p>
             </header>
             <div class="entry-grid">
               <section class="panel upload-panel">
@@ -221,7 +230,7 @@
 
           <section class="view" id="cases-view">
             <header class="view-heading">
-              <div><p class="eyebrow">CASE LIBRARY</p><h1>案例管理</h1></div>
+              <div><p class="eyebrow">案例资料</p><h1>案例管理</h1></div>
               <p>查看案例原文证据；停用操作可恢复，不删除结构化记录。</p>
             </header>
             <div class="stats-grid" id="case-stats">
@@ -254,6 +263,7 @@
             </section>
           </section>
         </main>
+        <footer class="workspace-footer"><span>FinRisk · 保险营销合规工作台</span><span>原文可查，判断可复核。</span></footer>
       </div>
     </div>
 
@@ -263,6 +273,7 @@
       <div id="case-detail"></div>
     </aside>
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js" defer></script>
+    <script src="/static/source-map.js?v=source-spans-2" defer></script>
+    <script src="/static/app.js?v=source-spans-2" defer></script>
   </body>
 </html>

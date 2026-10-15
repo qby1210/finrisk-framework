@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field, model_validator
 
+from domain.agent_models import AgentExecutionTrace
 from domain.common import ContractModel
 from domain.knowledge_models import MatchedCase
 from domain.query_models import QueryProcessingResult
@@ -24,6 +26,9 @@ class RiskEvidence(ContractModel):
 
     source: str
     description: str
+    sentence_id: str | None = None
+    document_start_offset: int | None = Field(default=None, ge=0)
+    document_end_offset: int | None = Field(default=None, ge=1)
 
 
 class SentenceRiskAssessment(ContractModel):
@@ -45,6 +50,12 @@ class SentenceRiskAssessment(ContractModel):
     retrieval_performed: bool = False
     evidence: list[RiskEvidence] = Field(default_factory=list)
     matched_cases: list[MatchedCase] = Field(default_factory=list)
+    context_review_required: bool = False
+    review_status: Literal["reviewed", "local", "needs_review"] = "local"
+    retrieval_status: Literal[
+        "not_requested", "candidates", "no_sufficient_match", "unavailable"
+    ] = "not_requested"
+    retrieval_query: str | None = None
 
 
 class RiskLabelFinding(ContractModel):
@@ -75,9 +86,11 @@ class QueryRiskSummary(ContractModel):
     llm_model: str | None = None
     llm_reviewed_sentence_count: int = Field(default=0, ge=0)
     local_direct_sentence_count: int = Field(default=0, ge=0)
+    pending_review_sentence_count: int = Field(default=0, ge=0)
     retrieval_sentence_count: int = Field(default=0, ge=0)
     warnings: list[str] = Field(default_factory=list)
     stage_timings_ms: dict[str, float] = Field(default_factory=dict)
+    agent_runs: list[AgentExecutionTrace] = Field(default_factory=list)
 
 
 class QueryAnalysisResult(QueryProcessingResult):
@@ -94,4 +107,21 @@ class QueryAnalysisResult(QueryProcessingResult):
         assessment_ids = [item.sentence_id for item in self.risk_assessments]
         if sentence_ids != assessment_ids:
             raise ValueError("risk_assessments 必须与 sentences 按 sentence_id 一一对应")
+        mappings = {item.sentence_id: item for item in self.source_mappings}
+        for sentence, assessment in zip(self.sentences, self.risk_assessments, strict=True):
+            if assessment.query_id != self.query_id or assessment.text != sentence.text:
+                raise ValueError("风险判断必须绑定当前 Query 的目标原句")
+            for evidence in assessment.evidence:
+                if evidence.sentence_id is None:
+                    continue
+                mapping = mappings.get(evidence.sentence_id)
+                if mapping is None:
+                    raise ValueError("判断依据必须引用当前 Query 的原句")
+                start, end = evidence.document_start_offset, evidence.document_end_offset
+                if start is None and end is None:
+                    continue
+                if start is None or end is None or not (
+                    mapping.document_start_offset <= start < end <= mapping.document_end_offset
+                ):
+                    raise ValueError("判断依据的原文偏移必须落在引用句内")
         return self

@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from domain.agent_models import AgentExecutionTrace
 from domain.common import ContractModel
 
 
@@ -21,6 +22,8 @@ class JsonChatRequest(ContractModel):
     temperature: float = Field(default=0.0, ge=0, le=2)
     max_tokens: int = Field(default=512, ge=1)
     extra_body: dict[str, object] = Field(default_factory=dict)
+    task: str = "json_review"
+    review_context: dict[str, object] = Field(default_factory=dict)
 
 
 class JsonChatResponse(ContractModel):
@@ -32,3 +35,4 @@ class JsonChatResponse(ContractModel):
     finish_reason: str | None = None
     latency_seconds: float = Field(default=0.0, ge=0)
     attempts: int = Field(default=1, ge=1)
+    agent_trace: AgentExecutionTrace | None = None

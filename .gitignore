@@ -7,6 +7,10 @@ __pycache__/
 .env
 *.log
 *.zip
+node_modules/
+.cache/
+.tmp/
+outputs/local-preview/
 
 # 采集台账（state/ingested）随仓库分发，避免全新部署重复入库已采集案
 data/raw/cases/*

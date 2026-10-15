@@ -5,6 +5,7 @@ from llm.client import (
     LLMConfigurationError,
     LLMProviderError,
     OpenAICompatibleLLMClient,
+    PiAgentLLMClient,
     create_llm_client_from_env,
 )
 from llm.types import ChatMessage, JsonChatRequest, JsonChatResponse
@@ -17,5 +18,6 @@ __all__ = [
     "LLMConfigurationError",
     "LLMProviderError",
     "OpenAICompatibleLLMClient",
+    "PiAgentLLMClient",
     "create_llm_client_from_env",
 ]

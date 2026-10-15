@@ -363,6 +363,7 @@ class QuerySceneClassifier:
 
         llm_response = await self._llm_client.complete_json(
             JsonChatRequest(
+                task="scene_classification",
                 messages=[
                     ChatMessage(
                         role="system",

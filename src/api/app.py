@@ -1,5 +1,7 @@
 """FinRisk FastAPI 应用和本地 Web 工作台入口。"""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -30,7 +32,7 @@ from domain.risk_models import QueryAnalysisResult
 from extraction import ExtractionError
 from llm import (
     LLMProviderError,
-    OpenAICompatibleLLMClient,
+    PiAgentLLMClient,
     create_llm_client_from_env,
 )
 from risk.detection import RuleRiskDetector
@@ -42,10 +44,30 @@ from storage.case_repository import CaseNotFoundError, CaseRepository, Duplicate
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = PROJECT_ROOT / "src" / "web" / "static"
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    application.state.agent_start_error = None
+    client = get_llm_client()
+    if client is not None:
+        try:
+            await client.start()
+        except LLMProviderError as error:
+            application.state.agent_start_error = str(error)
+    yield
+    if get_llm_client.cache_info().currsize:
+        client = get_llm_client()
+        if client is not None:
+            await client.aclose()
+    for factory in (get_analysis_service, get_query_service, get_case_service, get_llm_client):
+        factory.cache_clear()
+
+
 app = FastAPI(
     title="FinRisk 保险合规风险工作台",
     description="案例增量入库、案例管理、Query 风险判断与相似案例匹配",
     version="1.0.0",
+    lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -78,7 +100,7 @@ def get_repository() -> CaseRepository:
 
 
 @lru_cache(maxsize=1)
-def get_llm_client() -> OpenAICompatibleLLMClient | None:
+def get_llm_client() -> PiAgentLLMClient | None:
     return create_llm_client_from_env()
 
 
@@ -152,6 +174,19 @@ async def health(case_service: CaseDependency) -> dict[str, object]:
         "latest_crawl_at": statistics.latest_crawl_at,
         "latest_penalty_date": statistics.latest_penalty_date,
         "llm_model": llm_client.model_name if llm_client else None,
+        "agent_runtime": {
+            "name": "pi-agent-core",
+            "version": "1.2.0",
+            "available": llm_client.runtime_available if llm_client else False,
+            "configured": llm_client is not None,
+            "worker_running": llm_client.worker_running if llm_client else False,
+            "startup_warning": (
+                getattr(app.state, "agent_start_error", None)
+                if llm_client and not llm_client.worker_running
+                else None
+            ),
+        },
+        "context_version": "sentence-context-1.0",
     }
 
 

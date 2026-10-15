@@ -13,11 +13,13 @@ from time import perf_counter
 from pydantic import BaseModel, Field, ValidationError
 
 from application.retrieval_service import CaseRetrievalService
+from domain.agent_models import AgentExecutionTrace
 from domain.knowledge_models import MatchedCase
 from domain.query_models import (
     QueryProcessingResult,
     QueryScene,
     RiskQuerySentence,
+    RiskSentenceContext,
     SentenceSourceMapping,
 )
 from domain.risk_models import (
@@ -29,7 +31,9 @@ from domain.risk_models import (
     SentenceRiskAssessment,
 )
 from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
+from query.context import build_retrieval_query, build_sentence_contexts
 from risk.calibration import RiskScorer, RiskThresholder
+from risk.context import detect_with_context
 from risk.detection import RuleDetectionResult, RuleRiskDetector
 from risk.taxonomy import expand_related_labels, taxonomy_prompt
 
@@ -38,6 +42,7 @@ from risk.taxonomy import expand_related_labels, taxonomy_prompt
 class _PreliminaryAssessment:
     sentence: RiskQuerySentence
     mapping: SentenceSourceMapping
+    context: RiskSentenceContext
     rules: RuleDetectionResult
 
 
@@ -94,23 +99,41 @@ class RiskAssessmentPipeline:
         analysis_started = perf_counter()
         local_started = perf_counter()
         mappings = {mapping.sentence_id: mapping for mapping in query.source_mappings}
+        contexts = {
+            context.sentence_id: context
+            for context in (
+                query.sentence_contexts
+                or build_sentence_contexts(
+                    query.source_text, query.sentences, query.source_mappings
+                )
+            )
+        }
         preliminary = tuple(
             _PreliminaryAssessment(
                 sentence=sentence,
                 mapping=mappings[sentence.sentence_id],
-                rules=self.rule_detector.detect(sentence.text, sentence.scene),
+                context=contexts[sentence.sentence_id],
+                rules=detect_with_context(
+                    self.rule_detector, sentence, contexts[sentence.sentence_id]
+                ),
             )
             for sentence in query.sentences
         )
         local_rules_ms = (perf_counter() - local_started) * 1000
         review_ids = {
-            item.sentence.sentence_id for item in preliminary if not self._local_direct(item.rules)
+            item.sentence.sentence_id
+            for item in preliminary
+            if not self._local_direct(item.rules, item.context)
         }
-        warnings: list[str] = []
+        warnings = list(query.extraction.warnings)
+        warnings.extend(
+            dict.fromkeys(warning for context in contexts.values() for warning in context.warnings)
+        )
         llm_outputs: dict[str, _LLMItem] = {}
+        agent_runs: list[AgentExecutionTrace] = []
         llm_started = perf_counter()
         if self.llm_client is not None and review_ids:
-            llm_outputs, llm_warnings = await self._llm_assess(preliminary, review_ids)
+            llm_outputs, llm_warnings, agent_runs = await self._llm_assess(preliminary, review_ids)
             warnings.extend(llm_warnings)
         elif self.llm_client is None and review_ids:
             warnings.append(
@@ -125,7 +148,9 @@ class RiskAssessmentPipeline:
         assessments = self._apply_document_channel_labels(query, assessments)
         finalize_ms = (perf_counter() - finalize_started) * 1000
         retrieval_started = perf_counter()
-        assessments = await self._retrieve_eligible(assessments)
+        assessments = await self._retrieve_eligible(assessments, contexts)
+        if any(item.retrieval_status == "unavailable" for item in assessments):
+            warnings.append("部分语句的案例检索不可用，请独立核对风险；未返回类案不代表没有风险")
         retrieval_ms = (perf_counter() - retrieval_started) * 1000
         aggregate_started = perf_counter()
         summary = self._summarize(
@@ -144,7 +169,8 @@ class RiskAssessmentPipeline:
                     "case_retrieval": round(retrieval_ms, 3),
                     "aggregate": round(aggregate_ms, 3),
                     "total": round((perf_counter() - analysis_started) * 1000, 3),
-                }
+                },
+                "agent_runs": agent_runs,
             }
         )
         return QueryAnalysisResult(
@@ -154,7 +180,9 @@ class RiskAssessmentPipeline:
             risk_assessments=assessments,
         )
 
-    def _local_direct(self, rules: RuleDetectionResult) -> bool:
+    def _local_direct(self, rules: RuleDetectionResult, context: RiskSentenceContext) -> bool:
+        if context.requires_review:
+            return False
         return rules.safe_signal or (
             rules.strong_signal and rules.confidence >= self.local_direct_confidence
         )
@@ -163,35 +191,39 @@ class RiskAssessmentPipeline:
         self,
         preliminary: tuple[_PreliminaryAssessment, ...],
         review_ids: set[str],
-    ) -> tuple[dict[str, _LLMItem], list[str]]:
+    ) -> tuple[dict[str, _LLMItem], list[str], list[AgentExecutionTrace]]:
         if self.llm_client is None:
-            return {}, []
+            return {}, [], []
         batches = self._llm_batches(preliminary, review_ids)
         semaphore = asyncio.Semaphore(self.llm_concurrency)
 
         async def run_batch(
             batch: tuple[_PreliminaryAssessment, ...],
             target_ids: set[str],
-        ) -> tuple[dict[str, _LLMItem], str | None]:
+        ) -> tuple[dict[str, _LLMItem], AgentExecutionTrace | None, str | None]:
             async with semaphore:
                 try:
-                    return await self._llm_batch(batch, target_ids), None
+                    outputs, trace = await self._llm_batch(batch, target_ids)
+                    return outputs, trace, None
                 except LLMProviderError as error:
-                    return {}, str(error)
+                    return {}, None, str(error)
 
         responses = await asyncio.gather(
             *(run_batch(batch, target_ids) for batch, target_ids in batches)
         )
         outputs: dict[str, _LLMItem] = {}
         warnings: list[str] = []
-        for batch_outputs, error in responses:
+        traces: list[AgentExecutionTrace] = []
+        for batch_outputs, trace, error in responses:
             outputs.update(batch_outputs)
+            if trace is not None:
+                traces.append(trace)
             if error:
                 warnings.append(f"大模型批次复核失败，已对该批使用本地结果：{error}")
         missing = review_ids - set(outputs)
         if missing:
             warnings.append(f"{len(missing)}个待复核句子未取得有效大模型输出")
-        return outputs, warnings
+        return outputs, warnings, traces
 
     def _llm_batches(
         self,
@@ -210,8 +242,8 @@ class RiskAssessmentPipeline:
                 continue
             item_chars = (
                 len(item.sentence.text)
-                + len(item.mapping.context_before)
-                + len(item.mapping.context_after)
+                + len(item.context.context_before)
+                + len(item.context.context_after)
             )
             if current and (
                 len(current) >= self.llm_batch_items
@@ -232,18 +264,31 @@ class RiskAssessmentPipeline:
         self,
         batch: tuple[_PreliminaryAssessment, ...],
         target_ids: set[str],
-    ) -> dict[str, _LLMItem]:
+    ) -> tuple[dict[str, _LLMItem], AgentExecutionTrace | None]:
         if self.llm_client is None:
-            return {}
+            return {}, None
         batch_payload = json.dumps([_llm_input(item) for item in batch], ensure_ascii=False)
         response = await self.llm_client.complete_json(
             JsonChatRequest(
+                task="risk_review",
+                review_context={
+                    "target_ids": sorted(target_ids),
+                    "allowed_labels": list(self.taxonomy),
+                    "sentences": [_llm_input(item) for item in batch],
+                },
                 messages=[
                     ChatMessage(
                         role="system",
                         content=(
                             "你是保险营销与经营合规审查员。只判断待审文本本身，不得使用或猜测历史案例。"
                             "逐句给出0到1风险分、风险标签、原文证据短语和简短理由。"
+                            "以context中的说话人、立场、作用域和逐字原文解释目标句。"
+                            "客户提问不等于销售承诺；简短回答必须结合问题判断。"
+                            "反面示例、否定纠正和禁止话术不能按肯定实施判断。"
+                            "不同产品和不同段落的承诺、限制不得互相借用；"
+                            "相邻独立风险不能复制到本句，普通免责声明也不能抵消已作出的承诺。"
+                            "context_truncated=true时保留未知。证据必须逐字来自该句"
+                            "context.source_sentences，不能来自同批另一段或另一个产品。"
                             "标签存在语义重复、上下位和包含关系，不要求互斥；只要语义明确相关可同时选择，"
                             "但不得仅因词面命中而堆砌标签。无明显风险时risk_score应低于0.20且标签为空。"
                             "带有明确条件、风险提示、合同限定、个人经历限定或正常流程描述时不要误判。"
@@ -281,9 +326,18 @@ class RiskAssessmentPipeline:
         for item in parsed.items:
             if item.sentence_id not in target_ids or item.sentence_id in outputs:
                 continue
+            source_item = next(
+                value for value in batch if value.sentence.sentence_id == item.sentence_id
+            )
+            if any(
+                not quote.strip()
+                or not any(quote in source.text for source in source_item.context.source_sentences)
+                for quote in item.evidence
+            ):
+                continue  # 不接受不能回引到该句作用域的模型证据。
             valid_labels = [label for label in item.risk_labels if label in self._taxonomy_set]
             outputs[item.sentence_id] = item.model_copy(update={"risk_labels": valid_labels})
-        return outputs
+        return outputs, response.agent_trace
 
     def _finalize(
         self,
@@ -296,13 +350,29 @@ class RiskAssessmentPipeline:
             local_confidence=item.rules.confidence,
             strong_signal=item.rules.strong_signal,
         )
+        if item.context.stance == "negative_example" and item.rules.safe_signal:
+            final_score = min(final_score, 0.19)
         decision = self.thresholder.judge(final_score)
         labels = self._resolve_labels(item, llm_output, final_score)
         evidence = list(item.rules.evidence)
         if llm_output:
             for quote in llm_output.evidence:
+                source = next(
+                    value
+                    for value in sorted(
+                        item.context.source_sentences, key=lambda value: not value.is_target
+                    )
+                    if quote in value.text
+                )
+                start = source.document_start_offset + source.text.index(quote)
                 evidence.append(
-                    RiskEvidence(source="llm_semantic_evidence", description=f"原文证据：{quote}")
+                    RiskEvidence(
+                        source="llm_semantic_evidence",
+                        description=f"原文证据：{quote}",
+                        sentence_id=source.sentence_id,
+                        document_start_offset=start,
+                        document_end_offset=start + len(quote),
+                    )
                 )
             evidence.append(
                 RiskEvidence(
@@ -320,14 +390,30 @@ class RiskAssessmentPipeline:
             risk_score=final_score,
             risk_level=decision.level,
             risk_level_name=decision.level_name,
-            action=decision.action,
             risk_labels=labels,
             reasoning=reasoning,
             method="local_two_stage+llm" if llm_output else "local_two_stage",
             local_score=item.rules.risk_score,
             local_confidence=item.rules.confidence,
             llm_reviewed=llm_output is not None,
+            context_review_required=item.context.requires_review,
+            review_status=(
+                "needs_review"
+                if item.context.context_truncated
+                else "reviewed"
+                if llm_output
+                else "local"
+                if self._local_direct(item.rules, item.context)
+                else "needs_review"
+            ),
             evidence=evidence,
+            action=(
+                "需结合上下文人工复核"
+                if (llm_output is None or item.context.context_truncated)
+                and item.context.requires_review
+                and final_score < self.retrieval_threshold
+                else decision.action
+            ),
         )
 
     def _apply_document_channel_labels(
@@ -335,24 +421,24 @@ class RiskAssessmentPipeline:
         query: QueryProcessingResult,
         assessments: list[SentenceRiskAssessment],
     ) -> list[SentenceRiskAssessment]:
-        channel_labels = _document_channel_labels(query.classification.scene, query.source_text)
-        document_content_labels = _explicit_content_labels(query.source_text)
-        risky_items = [
-            item for item in assessments if item.risk_score >= self.risk_display_threshold
-        ]
-        document_label_target_id = (
-            max(risky_items, key=lambda item: item.risk_score).sentence_id
-            if document_content_labels and risky_items
-            else None
-        )
+        contexts = {context.sentence_id: context for context in query.sentence_contexts}
+        marker_match = re.match(r"^【材料载体：[^】]+】", query.source_text)
+        marker = marker_match.group(0) if marker_match else ""
         results: list[SentenceRiskAssessment] = []
         for item in assessments:
             if item.risk_score < self.risk_display_threshold:
                 results.append(item)
                 continue
             content_labels = _explicit_content_labels(item.text)
-            if item.sentence_id == document_label_target_id:
-                content_labels.extend(document_content_labels)
+            context = contexts.get(item.sentence_id)
+            channel_text = (
+                "\n".join(source.text for source in context.source_sentences)
+                if context
+                else item.text
+            )
+            channel_labels = _document_channel_labels(
+                query.classification.scene, f"{marker}\n{channel_text}" if marker else channel_text
+            )
             if (
                 query.classification.scene is QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK
                 and _looks_like_noncompliant_training_guidance(item.text)
@@ -399,6 +485,7 @@ class RiskAssessmentPipeline:
     async def _retrieve_eligible(
         self,
         assessments: list[SentenceRiskAssessment],
+        contexts: dict[str, RiskSentenceContext],
     ) -> list[SentenceRiskAssessment]:
         eligible = [
             item
@@ -409,39 +496,61 @@ class RiskAssessmentPipeline:
             return assessments
         semaphore = asyncio.Semaphore(4)
 
-        async def retrieve(item: SentenceRiskAssessment) -> tuple[str, list[MatchedCase]]:
+        async def retrieve(
+            item: SentenceRiskAssessment,
+        ) -> tuple[str, list[MatchedCase], str, bool]:
             async with semaphore:
-                matches = await asyncio.to_thread(
-                    self.retrieval_service.search,
-                    item.text,
-                    top_k=3,
-                    risk_tags=set(item.risk_labels),
-                )
-                return item.sentence_id, matches
+                retrieval_query = build_retrieval_query(contexts[item.sentence_id])
+                try:
+                    matches = await asyncio.to_thread(
+                        self.retrieval_service.search,
+                        retrieval_query,
+                        top_k=3,
+                        risk_tags=set(item.risk_labels),
+                    )
+                    return item.sentence_id, matches, retrieval_query, False
+                except (OSError, ValueError, RuntimeError):
+                    return item.sentence_id, [], retrieval_query, True
 
-        retrieved = dict(await asyncio.gather(*(retrieve(item) for item in eligible)))
+        retrieved = {
+            sentence_id: (matches, retrieval_query, failed)
+            for sentence_id, matches, retrieval_query, failed in await asyncio.gather(
+                *(retrieve(item) for item in eligible)
+            )
+        }
         results: list[SentenceRiskAssessment] = []
         for item in assessments:
-            matches = retrieved.get(item.sentence_id)
-            if matches is None:
+            retrieved_item = retrieved.get(item.sentence_id)
+            if retrieved_item is None:
                 results.append(item)
                 continue
+            matches, retrieval_query, failed = retrieved_item
             evidence = list(item.evidence)
             if matches:
                 top = matches[0]
                 evidence.append(
                     RiskEvidence(
                         source="hybrid_case_retrieval",
-                        description=(f"标签对齐案例 {top.case_id}，混合重排分 {top.score:.2f}"),
+                        description=(
+                            f"类案参考 {top.case_id}，内部排序分 {top.score:.2f}；可比性待核验"
+                        ),
                     )
                 )
             results.append(
                 item.model_copy(
                     update={
-                        "method": f"{item.method}+bm25_vector_rrf_rerank",
+                        "method": f"{item.method}+context_bm25_tfidf_rrf_rerank",
                         "retrieval_performed": True,
                         "evidence": evidence,
                         "matched_cases": matches,
+                        "retrieval_query": retrieval_query,
+                        "retrieval_status": (
+                            "unavailable"
+                            if failed
+                            else "candidates"
+                            if matches
+                            else "no_sufficient_match"
+                        ),
                     }
                 )
             )
@@ -489,11 +598,16 @@ class RiskAssessmentPipeline:
                 if current is None or case.score > current.score:
                     best_cases[case.case_id] = case
         top_cases = sorted(best_cases.values(), key=lambda case: (-case.score, case.case_id))[:5]
+        pending_count = sum(item.review_status == "needs_review" for item in assessments)
         return QueryRiskSummary(
             overall_score=overall_score,
             overall_level=decision.level,
             overall_level_name=decision.level_name,
-            action=decision.action,
+            action=(
+                "补充语义或人工复核后确认"
+                if pending_count and overall_score < self.retrieval_threshold
+                else decision.action
+            ),
             risk_labels=[finding.label for finding in findings],
             risk_findings=findings,
             top_matched_cases=top_cases,
@@ -510,6 +624,7 @@ class RiskAssessmentPipeline:
             local_direct_sentence_count=len(assessments) - len(review_ids),
             retrieval_sentence_count=sum(item.retrieval_performed for item in assessments),
             warnings=warnings,
+            pending_review_sentence_count=pending_count,
         )
 
 
@@ -520,6 +635,7 @@ def _llm_input(item: _PreliminaryAssessment) -> dict[str, object]:
         "text": item.sentence.text,
         "context_before": item.mapping.context_before[-400:],
         "context_after": item.mapping.context_after[:400],
+        "context": item.context.model_dump(),
         "local_stage1_score": item.rules.stage1_score,
         "local_stage2_score": item.rules.stage2_score,
         "local_labels": list(item.rules.risk_labels),
@@ -528,6 +644,9 @@ def _llm_input(item: _PreliminaryAssessment) -> dict[str, object]:
 
 
 def _fallback_reasoning(rules: RuleDetectionResult, level: RiskLevel) -> str:
+    context_evidence = [value for value in rules.evidence if value.source.startswith("context_")]
+    if context_evidence:
+        return "；".join(value.description for value in context_evidence[:2])
     if rules.evidence:
         return "；".join(value.description for value in rules.evidence[:2])
     if level is RiskLevel.NONE:

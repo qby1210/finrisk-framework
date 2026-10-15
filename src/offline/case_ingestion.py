@@ -297,6 +297,7 @@ class IncrementalCaseBuilder:
             raise LLMProviderError("大模型未配置")
         return await self.llm_client.complete_json(
             JsonChatRequest(
+                task="case_ingestion",
                 messages=[
                     ChatMessage(
                         role="system",
