@@ -1,0 +1,49 @@
+{
+  "python_tests": {
+    "passed": 173,
+    "failed": 0
+  },
+  "node_tests": {
+    "passed": 31,
+    "failed": 0
+  },
+  "ruff": "passed",
+  "mypy": {
+    "result": "passed",
+    "source_files": 77
+  },
+  "browser": {
+    "result": "passed",
+    "checks": [
+      "real_api_analysis",
+      "three_rerank_options",
+      "post_pre_adaptive",
+      "six_scene_options",
+      "pdf_original",
+      "institution_filter",
+      "html_export",
+      "jsonl_export",
+      "evaluation_view"
+    ],
+    "javascript_errors": 0
+  },
+  "real_api_previous_failure_replay": {
+    "query_ids": [
+      "TEST001",
+      "TEST039",
+      "TEST047",
+      "TEST149"
+    ],
+    "queries": 4,
+    "errors": 0,
+    "remaining_unreviewed_targets": 0,
+    "state_accuracy": 1.0
+  },
+  "delivery_integrity": {
+    "documents": 9639,
+    "subject_cases": 15620,
+    "result": "passed"
+  },
+  "published_results": "Same frozen test200 and silver references; original 15 targets and longtext cases replayed with real APIs.",
+  "deployment": "No server deployment."
+}

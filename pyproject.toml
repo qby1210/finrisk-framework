@@ -21,10 +21,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.9.1",
     "mypy>=1.14,<2.0",
     "pytest>=8.3,<9.0",
     "ruff>=0.9,<1.0",
+]
+
+[project.optional-dependencies]
+local-embedding = [
+    "torch>=2.6,<2.11",
+    "transformers>=4.50,<5",
 ]
 
 [tool.uv]
@@ -33,6 +38,7 @@ package = false
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["data", "outputs", "models", "raw_pdfs", "release", ".tmp"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -41,6 +47,10 @@ select = ["E", "F", "I", "UP"]
 python_version = "3.11"
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["torch.*", "transformers.*"]
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

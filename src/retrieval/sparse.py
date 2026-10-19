@@ -8,6 +8,9 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+import numpy as np
+from numpy.typing import NDArray
+
 from retrieval.tokenization import chinese_unigram_bigram
 
 
@@ -38,10 +41,12 @@ class SparseRetrievalIndex:
         self.k1 = k1
         self.b = b
         self.documents = tuple(documents)
+        self._weights = np.asarray([document.weight for document in self.documents])
         self._document_lengths: list[int] = []
         self._postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
         self._vector_idf: dict[str, float] = {}
         self._vector_norms: list[float] = []
+        self._bm25_arrays: dict[str, tuple[NDArray[np.int64], NDArray[np.float64]]] = {}
         self._build()
 
     def _build(self) -> None:
@@ -67,6 +72,23 @@ class SparseRetrievalIndex:
             total_length / len(self.documents) if self.documents else 0.0
         )
         self._build_vector_statistics()
+        self._build_bm25_arrays()
+
+    def _build_bm25_arrays(self) -> None:
+        """Precompute identical BM25 contributions, removing Python loops over every posting."""
+        count = len(self.documents)
+        if not count:
+            return
+        lengths = np.asarray(self._document_lengths, dtype=np.float64)
+        for term, postings in self._postings.items():
+            positions = np.asarray([p[0] for p in postings], dtype=np.int64)
+            frequencies = np.asarray([p[1] for p in postings], dtype=np.float64)
+            idf = math.log(1 + (count - len(postings) + 0.5) / (len(postings) + 0.5))
+            denominator = frequencies + self.k1 * (
+                1 - self.b + self.b * lengths[positions] / self._average_document_length
+            )
+            contribution = idf * frequencies * (self.k1 + 1) / denominator
+            self._bm25_arrays[term] = (positions, contribution)
 
     def _build_vector_statistics(self) -> None:
         """复用倒排表构建本地 TF-IDF 向量通道，不额外加载模型权重。"""
@@ -92,38 +114,27 @@ class SparseRetrievalIndex:
         if top_k <= 0:
             raise ValueError("top_k 必须大于 0")
         query_terms = tuple(dict.fromkeys(chinese_unigram_bigram(query)))
-        scores: dict[int, float] = defaultdict(float)
+        scores = np.zeros(len(self.documents), dtype=np.float64)
         document_count = len(self.documents)
         if not document_count:
             return ()
 
         for term in query_terms:
-            postings = self._postings.get(term)
-            if not postings:
+            arrays = self._bm25_arrays.get(term)
+            if arrays is None:
                 continue
-            document_frequency = len(postings)
-            idf = math.log(
-                1 + (document_count - document_frequency + 0.5) / (document_frequency + 0.5)
-            )
-            for document_index, term_frequency in postings:
-                length_ratio = (
-                    self._document_lengths[document_index] / self._average_document_length
-                )
-                denominator = term_frequency + self.k1 * (1 - self.b + self.b * length_ratio)
-                scores[document_index] += idf * term_frequency * (self.k1 + 1) / denominator
-
-        ranked = heapq.nlargest(
-            min(top_k, len(scores)),
-            scores.items(),
-            key=lambda item: (item[1] * self.documents[item[0]].weight, -item[0]),
-        )
+            positions, contribution = arrays
+            scores[positions] += contribution
+        positive = np.flatnonzero(scores > 0)
+        weighted = scores[positive] * self._weights[positive]
+        ranked = positive[np.lexsort((positive, -weighted))[:top_k]]
         return tuple(
             SparseSearchHit(
                 document=self.documents[document_index],
-                score=raw_score * self.documents[document_index].weight,
+                score=float(scores[document_index] * self.documents[document_index].weight),
                 rank=rank,
             )
-            for rank, (document_index, raw_score) in enumerate(ranked, start=1)
+            for rank, document_index in enumerate(ranked, start=1)
         )
 
     def vector_search(self, query: str, *, top_k: int = 50) -> tuple[SparseSearchHit, ...]:

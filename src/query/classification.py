@@ -325,6 +325,28 @@ class QuerySceneClassifier:
         *,
         scene_override: QueryScene | None = None,
     ) -> QuerySceneClassification:
+        try:
+            return await self._classify(text, context, scene_override=scene_override)
+        except LLMProviderError:
+            evaluation = self._rule_classifier.evaluate(text, context)
+            top = evaluation.candidates[0]
+            return QuerySceneClassification(
+                scene=top.scene if top.score > 0 else _fallback_scene(text),
+                confidence=top.confidence if top.score > 0 else 0.25,
+                method=QueryClassificationMethod.RULE_FALLBACK,
+                evidence=[*top.evidence, "场景模型暂不可用，按载体线索分类"],
+                rule_candidates=evaluation.candidates,
+                classifier_version=CLASSIFIER_VERSION,
+                taxonomy_version=TAXONOMY_VERSION,
+            )
+
+    async def _classify(
+        self,
+        text: str,
+        context: QueryClassificationContext | None = None,
+        *,
+        scene_override: QueryScene | None = None,
+    ) -> QuerySceneClassification:
         evaluation = self._rule_classifier.evaluate(text, context)
         top = evaluation.candidates[0]
         if scene_override is not None:

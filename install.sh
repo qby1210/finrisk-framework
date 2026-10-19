@@ -27,6 +27,6 @@ command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 || {
 node -e 'const [major,minor]=process.versions.node.split(".").map(Number);process.exit(major>22||(major===22&&minor>=19)?0:1)'
 (cd agent_runtime && npm ci --ignore-scripts --no-audit --no-fund --cache .cache/npm)
 [[ -f .env ]] || cp .env.example .env
-.venv/bin/python scripts/verify_delivery.py
+.venv/bin/python scripts/verify_delivery.py --allow-missing-knowledge
 
-echo "FinRisk installation completed. Run: bash start.sh"
+echo "FinRisk dependencies installed. Once the knowledge base is restored, run: bash start.sh"

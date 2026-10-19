@@ -1,0 +1,641 @@
+{
+  "available": true,
+  "version": "competition500-label-precision-v2-20261019",
+  "scope": "closed_500_cases_frozen_reference_regression",
+  "selected_mode": "deepseek_adaptive",
+  "default_config": {
+    "rerank_provider": "deepseek",
+    "retrieval_timing": "adaptive",
+    "query_anchors": 0,
+    "retrieval_top_k": 5,
+    "local_calibration": true,
+    "longtext_screening": true
+  },
+  "dataset": {
+    "cases": 500,
+    "source_documents": 500,
+    "development_queries": 400,
+    "test_queries": 200,
+    "label_count": 27,
+    "scene_count": 6,
+    "annotation": "模型辅助银标",
+    "qrels_protocol": "paired-behavior-evidence-v2",
+    "explicit_test_query_case_pairs": 100000,
+    "test_used_for_training_or_selection": false,
+    "development_validation_queries": 100
+  },
+  "risk": {
+    "previous": {
+      "queries": 200,
+      "state_accuracy": 0.805,
+      "risk_binary_accuracy": 0.855,
+      "risk_precision": 0.8571428571428571,
+      "risk_recall": 0.8947368421052632,
+      "risk_f1": 0.8755364806866953,
+      "scene_accuracy": 0.89,
+      "label_micro_f1": 0.5128205128205128,
+      "label_macro_f1": 0.5379735774336637,
+      "label_supported_macro_f1": 0.5379735774336637,
+      "per_label": {
+        "欺骗投保人": {
+          "tp": 11,
+          "fp": 25,
+          "fn": 7,
+          "f1": 0.4074074074074074,
+          "support": 18
+        },
+        "销售误导": {
+          "tp": 16,
+          "fp": 43,
+          "fn": 8,
+          "f1": 0.3855421686746988,
+          "support": 24
+        },
+        "夸大收益": {
+          "tp": 17,
+          "fp": 5,
+          "fn": 2,
+          "f1": 0.8292682926829268,
+          "support": 19
+        },
+        "虚假宣传": {
+          "tp": 10,
+          "fp": 10,
+          "fn": 11,
+          "f1": 0.4878048780487805,
+          "support": 21
+        },
+        "合同外利益": {
+          "tp": 6,
+          "fp": 13,
+          "fn": 6,
+          "f1": 0.3870967741935484,
+          "support": 12
+        },
+        "赠送利益": {
+          "tp": 13,
+          "fp": 10,
+          "fn": 1,
+          "f1": 0.7027027027027027,
+          "support": 14
+        },
+        "回扣返佣": {
+          "tp": 4,
+          "fp": 3,
+          "fn": 8,
+          "f1": 0.42105263157894735,
+          "support": 12
+        },
+        "产品说明会违规": {
+          "tp": 9,
+          "fp": 15,
+          "fn": 0,
+          "f1": 0.5454545454545454,
+          "support": 9
+        },
+        "培训材料违规": {
+          "tp": 5,
+          "fp": 17,
+          "fn": 3,
+          "f1": 0.3333333333333333,
+          "support": 8
+        },
+        "回访违规": {
+          "tp": 4,
+          "fp": 1,
+          "fn": 1,
+          "f1": 0.8,
+          "support": 5
+        },
+        "电销违规": {
+          "tp": 2,
+          "fp": 4,
+          "fn": 1,
+          "f1": 0.4444444444444444,
+          "support": 3
+        },
+        "不当比较": {
+          "tp": 3,
+          "fp": 14,
+          "fn": 0,
+          "f1": 0.3,
+          "support": 3
+        },
+        "贬低竞品": {
+          "tp": 5,
+          "fp": 1,
+          "fn": 0,
+          "f1": 0.9090909090909091,
+          "support": 5
+        },
+        "绝对化表述": {
+          "tp": 12,
+          "fp": 10,
+          "fn": 6,
+          "f1": 0.6,
+          "support": 18
+        },
+        "承诺收益": {
+          "tp": 7,
+          "fp": 17,
+          "fn": 1,
+          "f1": 0.4375,
+          "support": 8
+        },
+        "保证收益": {
+          "tp": 7,
+          "fp": 11,
+          "fn": 1,
+          "f1": 0.5384615384615384,
+          "support": 8
+        },
+        "弱化风险提示": {
+          "tp": 9,
+          "fp": 8,
+          "fn": 6,
+          "f1": 0.5625,
+          "support": 15
+        },
+        "隐瞒重要信息": {
+          "tp": 14,
+          "fp": 27,
+          "fn": 6,
+          "f1": 0.45901639344262296,
+          "support": 20
+        },
+        "虚构收益率": {
+          "tp": 3,
+          "fp": 3,
+          "fn": 2,
+          "f1": 0.5454545454545454,
+          "support": 5
+        },
+        "诱导投保": {
+          "tp": 12,
+          "fp": 22,
+          "fn": 5,
+          "f1": 0.47058823529411764,
+          "support": 17
+        },
+        "避债避税": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0,
+          "f1": 1.0,
+          "support": 2
+        },
+        "虚列费用套取资金": {
+          "tp": 26,
+          "fp": 8,
+          "fn": 10,
+          "f1": 0.7428571428571429,
+          "support": 36
+        },
+        "代理人管理不到位": {
+          "tp": 9,
+          "fp": 14,
+          "fn": 4,
+          "f1": 0.5,
+          "support": 13
+        },
+        "委托无资质机构销售": {
+          "tp": 3,
+          "fp": 2,
+          "fn": 6,
+          "f1": 0.42857142857142855,
+          "support": 9
+        },
+        "未按规定使用费率条款": {
+          "tp": 10,
+          "fp": 7,
+          "fn": 5,
+          "f1": 0.625,
+          "support": 15
+        },
+        "客户信息不真实": {
+          "tp": 7,
+          "fp": 16,
+          "fn": 1,
+          "f1": 0.45161290322580644,
+          "support": 8
+        },
+        "其他": {
+          "tp": 4,
+          "fp": 28,
+          "fn": 2,
+          "f1": 0.21052631578947367,
+          "support": 6
+        }
+      },
+      "median_seconds": 3.85285899999144,
+      "p95_seconds": 10.763597599987406,
+      "warnings": 9,
+      "errors": 0,
+      "missing_model_targets": 15,
+      "long_queries": 1,
+      "long_median_seconds": 4.116332399979001
+    },
+    "deepseek_adaptive": {
+      "queries": 200,
+      "state_accuracy": 0.815,
+      "risk_binary_accuracy": 0.86,
+      "risk_precision": 0.8359375,
+      "risk_recall": 0.9385964912280702,
+      "risk_f1": 0.8842975206611571,
+      "scene_accuracy": 0.885,
+      "label_micro_f1": 0.5256723716381418,
+      "label_macro_f1": 0.5481418914141536,
+      "label_supported_macro_f1": 0.5481418914141536,
+      "per_label": {
+        "欺骗投保人": {
+          "tp": 9,
+          "fp": 21,
+          "fn": 9,
+          "f1": 0.375,
+          "support": 18
+        },
+        "销售误导": {
+          "tp": 16,
+          "fp": 32,
+          "fn": 8,
+          "f1": 0.4444444444444444,
+          "support": 24
+        },
+        "夸大收益": {
+          "tp": 17,
+          "fp": 3,
+          "fn": 2,
+          "f1": 0.8717948717948718,
+          "support": 19
+        },
+        "虚假宣传": {
+          "tp": 10,
+          "fp": 13,
+          "fn": 11,
+          "f1": 0.45454545454545453,
+          "support": 21
+        },
+        "合同外利益": {
+          "tp": 7,
+          "fp": 9,
+          "fn": 5,
+          "f1": 0.5,
+          "support": 12
+        },
+        "赠送利益": {
+          "tp": 13,
+          "fp": 10,
+          "fn": 1,
+          "f1": 0.7027027027027027,
+          "support": 14
+        },
+        "回扣返佣": {
+          "tp": 8,
+          "fp": 3,
+          "fn": 4,
+          "f1": 0.6956521739130435,
+          "support": 12
+        },
+        "产品说明会违规": {
+          "tp": 4,
+          "fp": 8,
+          "fn": 5,
+          "f1": 0.38095238095238093,
+          "support": 9
+        },
+        "培训材料违规": {
+          "tp": 8,
+          "fp": 22,
+          "fn": 0,
+          "f1": 0.42105263157894735,
+          "support": 8
+        },
+        "回访违规": {
+          "tp": 4,
+          "fp": 1,
+          "fn": 1,
+          "f1": 0.8,
+          "support": 5
+        },
+        "电销违规": {
+          "tp": 2,
+          "fp": 6,
+          "fn": 1,
+          "f1": 0.36363636363636365,
+          "support": 3
+        },
+        "不当比较": {
+          "tp": 3,
+          "fp": 11,
+          "fn": 0,
+          "f1": 0.35294117647058826,
+          "support": 3
+        },
+        "贬低竞品": {
+          "tp": 5,
+          "fp": 1,
+          "fn": 0,
+          "f1": 0.9090909090909091,
+          "support": 5
+        },
+        "绝对化表述": {
+          "tp": 10,
+          "fp": 5,
+          "fn": 8,
+          "f1": 0.6060606060606061,
+          "support": 18
+        },
+        "承诺收益": {
+          "tp": 7,
+          "fp": 11,
+          "fn": 1,
+          "f1": 0.5384615384615384,
+          "support": 8
+        },
+        "保证收益": {
+          "tp": 6,
+          "fp": 7,
+          "fn": 2,
+          "f1": 0.5714285714285714,
+          "support": 8
+        },
+        "弱化风险提示": {
+          "tp": 6,
+          "fp": 9,
+          "fn": 9,
+          "f1": 0.4,
+          "support": 15
+        },
+        "隐瞒重要信息": {
+          "tp": 8,
+          "fp": 16,
+          "fn": 12,
+          "f1": 0.36363636363636365,
+          "support": 20
+        },
+        "虚构收益率": {
+          "tp": 3,
+          "fp": 2,
+          "fn": 2,
+          "f1": 0.6,
+          "support": 5
+        },
+        "诱导投保": {
+          "tp": 8,
+          "fp": 17,
+          "fn": 9,
+          "f1": 0.38095238095238093,
+          "support": 17
+        },
+        "避债避税": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0,
+          "f1": 1.0,
+          "support": 2
+        },
+        "虚列费用套取资金": {
+          "tp": 30,
+          "fp": 12,
+          "fn": 6,
+          "f1": 0.7692307692307693,
+          "support": 36
+        },
+        "代理人管理不到位": {
+          "tp": 5,
+          "fp": 10,
+          "fn": 8,
+          "f1": 0.35714285714285715,
+          "support": 13
+        },
+        "委托无资质机构销售": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 5,
+          "f1": 0.6153846153846154,
+          "support": 9
+        },
+        "未按规定使用费率条款": {
+          "tp": 11,
+          "fp": 3,
+          "fn": 4,
+          "f1": 0.7586206896551724,
+          "support": 15
+        },
+        "客户信息不真实": {
+          "tp": 7,
+          "fp": 18,
+          "fn": 1,
+          "f1": 0.42424242424242425,
+          "support": 8
+        },
+        "其他": {
+          "tp": 2,
+          "fp": 20,
+          "fn": 4,
+          "f1": 0.14285714285714285,
+          "support": 6
+        }
+      },
+      "median_seconds": 4.6253839999990305,
+      "p95_seconds": 10.782025699998485,
+      "warnings": 1,
+      "errors": 0,
+      "missing_model_targets": 0,
+      "long_queries": 1,
+      "long_median_seconds": 4.731980200012913
+    }
+  },
+  "risk_names": {
+    "previous": "优化前 · DeepSeek＋自适应",
+    "deepseek_adaptive": "优化后 · DeepSeek＋自适应"
+  },
+  "retrieval": {
+    "none": {
+      "judged_queries": 200,
+      "positive_queries": 200,
+      "no_positive_queries": 0,
+      "hit1": 0.485,
+      "hit5": 0.89,
+      "mrr": 0.6485048354423354,
+      "recall_at_3": 0.048639819902638846,
+      "recall_at_5": 0.08819168933384282,
+      "recall_at_10": 0.1662573886126625,
+      "recall_at_20": 0.27871668679693284,
+      "ndcg_at_10": 0.38028573324867215,
+      "median_seconds": 0.27886275001219474,
+      "literal_verified_queries": 200,
+      "warning_queries": 0
+    },
+    "cloud": {
+      "judged_queries": 200,
+      "positive_queries": 200,
+      "no_positive_queries": 0,
+      "hit1": 0.77,
+      "hit5": 0.965,
+      "mrr": 0.8510238095238095,
+      "recall_at_3": 0.07996458112744467,
+      "recall_at_5": 0.12406886011606523,
+      "recall_at_10": 0.19571073774222852,
+      "recall_at_20": 0.2786442230288169,
+      "ndcg_at_10": 0.49405617884436304,
+      "median_seconds": 0.2965319499926409,
+      "literal_verified_queries": 200,
+      "warning_queries": 0
+    },
+    "deepseek": {
+      "judged_queries": 200,
+      "positive_queries": 200,
+      "no_positive_queries": 0,
+      "hit1": 0.805,
+      "hit5": 0.935,
+      "mrr": 0.8595119047619048,
+      "recall_at_3": 0.08291240040889318,
+      "recall_at_5": 0.1262157876311399,
+      "recall_at_10": 0.2054454351766455,
+      "recall_at_20": 0.2786442230288169,
+      "ndcg_at_10": 0.5323439503630949,
+      "median_seconds": 0.969182600005297,
+      "literal_verified_queries": 200,
+      "warning_queries": 0
+    }
+  },
+  "retrieval_measurement_note": "前轮同一200Query的独立检索对照，排序实现未改动。",
+  "longtext": {
+    "baseline": {
+      "protocol": "synthetic-padding-from-development-only-v1",
+      "query_concurrency": 3,
+      "scope": "closed_500_cases_warm_index",
+      "test_set_used": false,
+      "risk_position": "head_middle_tail",
+      "results": {
+        "deepseek_post": {
+          "2000": {
+            "queries": 6,
+            "actual_chars_min": 2021,
+            "actual_chars_max": 2134,
+            "median_seconds": 4.437318750016857,
+            "p95_seconds": 10.604196400003275,
+            "risk_queries_detected": 5,
+            "missing_model_targets": 0,
+            "errors": 0
+          },
+          "6000": {
+            "queries": 6,
+            "actual_chars_min": 6051,
+            "actual_chars_max": 6164,
+            "median_seconds": 4.212324799998896,
+            "p95_seconds": 11.256808300007833,
+            "risk_queries_detected": 5,
+            "missing_model_targets": 0,
+            "errors": 0
+          }
+        },
+        "deepseek_adaptive": {
+          "2000": {
+            "queries": 6,
+            "actual_chars_min": 2021,
+            "actual_chars_max": 2134,
+            "median_seconds": 5.933139049986494,
+            "p95_seconds": 12.033373299986124,
+            "risk_queries_detected": 5,
+            "missing_model_targets": 0,
+            "errors": 0
+          },
+          "6000": {
+            "queries": 6,
+            "actual_chars_min": 6051,
+            "actual_chars_max": 6164,
+            "median_seconds": 5.520081499998923,
+            "p95_seconds": 14.828927499998827,
+            "risk_queries_detected": 6,
+            "missing_model_targets": 0,
+            "errors": 0
+          }
+        }
+      }
+    },
+    "cascade": {
+      "protocol": "synthetic-padding-from-development-only-v1",
+      "query_concurrency": 3,
+      "scope": "closed_500_cases_warm_index",
+      "test_set_used": false,
+      "risk_position": "head_middle_tail",
+      "results": {
+        "deepseek_post": {
+          "2000": {
+            "queries": 6,
+            "actual_chars_min": 2021,
+            "actual_chars_max": 2134,
+            "median_seconds": 6.972971249997499,
+            "p95_seconds": 12.494375799986301,
+            "risk_queries_detected": 6,
+            "missing_model_targets": 0,
+            "errors": 0
+          },
+          "6000": {
+            "queries": 6,
+            "actual_chars_min": 6051,
+            "actual_chars_max": 6164,
+            "median_seconds": 5.142804300005082,
+            "p95_seconds": 12.01564359999611,
+            "risk_queries_detected": 6,
+            "missing_model_targets": 0,
+            "errors": 0
+          }
+        },
+        "deepseek_adaptive": {
+          "2000": {
+            "queries": 6,
+            "actual_chars_min": 2021,
+            "actual_chars_max": 2134,
+            "median_seconds": 8.055789499994717,
+            "p95_seconds": 16.878628500009654,
+            "risk_queries_detected": 6,
+            "missing_model_targets": 0,
+            "errors": 0
+          },
+          "6000": {
+            "queries": 6,
+            "actual_chars_min": 6051,
+            "actual_chars_max": 6164,
+            "median_seconds": 8.442750299989711,
+            "p95_seconds": 18.29196599998977,
+            "risk_queries_detected": 6,
+            "missing_model_targets": 0,
+            "errors": 0
+          }
+        }
+      }
+    }
+  },
+  "release_gate": {
+    "label_f1_improved": true,
+    "no_unreviewed_targets": true,
+    "no_request_errors": true,
+    "all_longtext_risks_detected": true
+  },
+  "previous_15_targets": {
+    "queries": [
+      "TEST001",
+      "TEST039",
+      "TEST047",
+      "TEST149"
+    ],
+    "before_unreviewed": 15,
+    "remaining_unreviewed": 0
+  },
+  "timing": {
+    "query_concurrency": 3,
+    "includes_scene_classification": true,
+    "excludes_index_startup": true
+  },
+  "provenance": {
+    "run": "label_precision_v2",
+    "label_reference_sha256": "4a6233f08f9443252a7d0bc6614a3661e8beb13a4a0fbfed323a8fce80f5b63d",
+    "test_input_sha256": "af6e34059a655ed16169b09357cda4e21e353cacac20bcf29e073f7eb3f18cfd",
+    "test_references_modified_for_this_upgrade": false,
+    "test_used_for_training": false,
+    "validation_is_development_subset": true
+  }
+}

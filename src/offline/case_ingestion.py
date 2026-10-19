@@ -42,6 +42,8 @@ class _LegalBasis(BaseModel):
 
 
 class _CaseLLMOutput(BaseModel):
+    is_insurance_related: bool | None = None
+    fact_quotes: list[str] = Field(default_factory=list)
     case_title: str | None = Field(default=None, max_length=500)
     party_name: str | None = Field(default=None, max_length=300)
     institution_type: str | None = Field(default=None, max_length=100)
@@ -52,8 +54,8 @@ class _CaseLLMOutput(BaseModel):
     penalty_date: str | None = None
     related_parties: list[_RelatedParty] = Field(default_factory=list, max_length=20)
     legal_basis_refs: list[_LegalBasis] = Field(default_factory=list, max_length=30)
-    risk_tags: list[str] = Field(default_factory=list, max_length=2)
-    risk_tag_basis: list[_RiskBasis] = Field(default_factory=list, max_length=2)
+    risk_tags: list[str] = Field(default_factory=list, max_length=27)
+    risk_tag_basis: list[_RiskBasis] = Field(default_factory=list, max_length=27)
     case_summary: str = Field(min_length=1, max_length=1000)
     keywords: list[str] = Field(default_factory=list, max_length=12)
     marketing_expressions: list[str] = Field(default_factory=list, max_length=8)
@@ -135,6 +137,8 @@ class IncrementalCaseBuilder:
         extraction: FileExtractionResult,
         *,
         source_file: str,
+        structured: _CaseLLMOutput | None = None,
+        atomic_index: int = 1,
     ) -> CaseIngestionArtifacts:
         text = extraction.full_text.strip()
         if not text:
@@ -142,7 +146,10 @@ class IncrementalCaseBuilder:
         warnings = list(extraction.warnings)
         llm_used = False
         output: _CaseLLMOutput
-        if self.llm_client is not None:
+        if structured is not None:
+            output = structured
+            llm_used = True
+        elif self.llm_client is not None:
             try:
                 output = await self._call_llm(text)
                 llm_used = True
@@ -155,6 +162,8 @@ class IncrementalCaseBuilder:
         warnings.extend(_field_completeness_warnings(output))
 
         case_id = f"U{extraction.checksum_sha256[:15].upper()}"
+        if atomic_index > 1:
+            case_id += f"P{atomic_index:02}"
         file_id = f"F_{extraction.checksum_sha256[:16].upper()}"
         risk_tags = [label for label in output.risk_tags if label in self._taxonomy_set]
         if not risk_tags:
@@ -187,6 +196,26 @@ class IncrementalCaseBuilder:
             risk_tags=risk_tags,
             data_version=self.data_version,
         )
+        for index, quote in enumerate(
+            dict.fromkeys(output.fact_quotes + [b.quote for b in valid_basis]), 1
+        ):
+            if quote and quote in text:
+                start = text.index(quote)
+                chunks.append(
+                    {
+                        "chunk_id": f"CHK_{case_id}_EVIDENCE_{index:03}",
+                        "case_id": case_id,
+                        "file_id": file_id,
+                        "chunk_type": "evidence",
+                        "chunk_text": quote,
+                        "supports_risk_tags": risk_tags,
+                        "is_verbatim": True,
+                        "retrieval_enabled": True,
+                        "retrieval_weight": 1.0,
+                        "source_span": {"start_char": start, "end_char": start + len(quote)},
+                        "data_version": self.data_version,
+                    }
+                )
         expansions = _build_expansions(
             case_id=case_id,
             values=[*output.marketing_expressions, *output.keywords],
@@ -208,8 +237,10 @@ class IncrementalCaseBuilder:
             "case_id": case_id,
             "file_id": file_id,
             "case_origin": "web_ingestion",
-            "atomic_case_index": 1,
-            "is_insurance_related": True,
+            "atomic_case_index": atomic_index,
+            "is_insurance_related": output.is_insurance_related
+            if output.is_insurance_related is not None
+            else bool(re.search(r"保险|投保人|保单|保费", text)),
             "party_name": output.party_name,
             "institution_type": output.institution_type,
             "penalty_doc_no": output.penalty_doc_no,
@@ -267,6 +298,62 @@ class IncrementalCaseBuilder:
         }
         return CaseIngestionArtifacts(record, chunks, expansions, llm_used, warnings)
 
+    async def build_many(
+        self, extraction: FileExtractionResult, *, source_file: str
+    ) -> list[CaseIngestionArtifacts]:
+        """One file may contain several separately penalized parties; retain their own facts."""
+        if self.llm_client is None:
+            artifact = await self.build(extraction, source_file=source_file)
+            return [artifact] if artifact.record["is_insurance_related"] else []
+        request = JsonChatRequest(
+            task="case_ingestion",
+            temperature=0,
+            max_tokens=16000,
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "从监管处罚材料逐一拆出每个被处罚主体，返回{cases:[...]}。银行、保险、个人等分别判断，"
+                        "is_insurance_related必须布尔：处罚事实涉及保险经营、保险代理、保险责任人员才为true。"
+                        "不能只因文尾保险字样纳入；责任人员可以通过明确机构关联纳入。"
+                        "每项字段：is_insurance_related,party_name,institution_type,penalty_doc_no,violation_behavior,"
+                        "penalty_content,regulator,penalty_date,related_parties,legal_basis_refs,risk_tags,risk_tag_basis,"
+                        "case_summary,keywords,marketing_expressions,confidence,fact_quotes。"
+                        "confidence为0到1；日期YYYY-MM-DD，不明字段null；列表为空用[]。"
+                        "fact_quotes为该主体违法事实的原文连续引文数组，必须逐字复制，不能引用其他主体事实。"
+                        "risk_tag_basis项为{risk_tag,reason,quote}。risk_tags保留全部有证据的标签，最多27个。"
+                        "处罚金额和处罚内容按主体保留；不合计不同主体；无保险相关案例返回空cases。"
+                        "related_parties项为{name,role}，legal_basis_refs项为{law_name,article}。"
+                    ),
+                ),
+                ChatMessage(
+                    role="user",
+                    content="允许标签："
+                    + json.dumps(self.taxonomy, ensure_ascii=False)
+                    + "\n原文：\n"
+                    + extraction.full_text[:60000],
+                ),
+            ],
+        )
+        response = await self.llm_client.complete_json(request)
+        raw = response.data.get("cases")
+        if not isinstance(raw, list):
+            raise LLMProviderError("多主体抽取缺少cases数组")
+        outputs = [_CaseLLMOutput.model_validate(r) for r in raw]
+        selected = [r for r in outputs if r.is_insurance_related is True]
+        artifacts = []
+        for index, item in enumerate(selected, 1):
+            if not item.party_name or item.party_name not in extraction.full_text:
+                raise ValueError("被处罚主体需对应原文名称")
+            if not item.fact_quotes or any(q not in extraction.full_text for q in item.fact_quotes):
+                raise ValueError("处罚事实引文未对应原文")
+            artifacts.append(
+                await self.build(
+                    extraction, source_file=source_file, structured=item, atomic_index=index
+                )
+            )
+        return artifacts
+
     async def _call_llm(self, text: str) -> _CaseLLMOutput:
         if self.llm_client is None:
             raise LLMProviderError("大模型未配置")
@@ -308,7 +395,7 @@ class IncrementalCaseBuilder:
                             "身份证号或职务说明。violation_behavior必须是违法违规事实的完整"
                             "表述、以句号收尾，禁止在半句话处截断；penalty_content必须是处罚"
                             "决定的完整表述、以句号收尾，不得混入当事人身份信息。"
-                            "risk_tags只能从给定标签选0到2个；"
+                            "risk_tags只能从给定27标签选择全部明确成立的类别；"
                             "risk_tag_basis.quote必须是原文逐字片段。"
                             'legal_basis_refs每项必须是对象{"law_name":"法条名","article":"第X条或null"}；'
                             "所有列表字段没有内容时输出[]，禁止输出null。输出单个JSON对象，字段为："
@@ -344,7 +431,7 @@ class IncrementalCaseBuilder:
         )
         facts = _extract_facts(text)
         rule_result = self.rule_detector.detect(text)
-        labels = [label for label in rule_result.risk_labels if label in self._taxonomy_set][:2]
+        labels = [label for label in rule_result.risk_labels if label in self._taxonomy_set]
         return _CaseLLMOutput(
             case_title=title,
             penalty_doc_no=document_number,

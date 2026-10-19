@@ -1,109 +1,22 @@
-# 系统架构
+FinRisk 当前架构
 
-## 目标与边界
+应用采用模块化单体：FastAPI 负责接口装配，application 编排解析、风险、检索和复核；domain
+保存稳定契约，storage 读取同一份知识库。浏览器通过 API 展示原文、证据、案例和审核记录。
+Python 的大模型任务统一交给 agent_runtime/ 的 Pi Agent；密钥只在本地环境中使用。
 
-FinRisk 是单进程 FastAPI 本地工作台，服务三项用例：案例增量录入、统一案例库管理、
-Query 风险判断与案例匹配。现有 7,628 条案例直接读取，不在启动时重建。
+输入先由 extraction 解析并保留原文偏移，再由 query 完成六场景识别、切句、说话人与作用域。
+risk 使用本地规则、400开发Query训练的轻量候选模型及Pi/DeepSeek复核，逐机制保存风险和必要事实未知状态。
+1600字且20句以上的长文先做完整分区语义初筛，再详细核查候选；规则标签和上下文依赖强制保留，失败回到完整复核。adaptive 根据条件
+选择 pre 材料，按作用域/机制共享 post 案例池，并做一次有预算的定向补查；post 和 pre 仍独立可选。
+相似案例分数不进入风险概率计算。自适应检索已统一通过 _retrieve_by_mechanism，旧不可达分支已删。
 
-案例库是队员根据原始 PDF 构建的数据资产，并非官方权威库。系统保留来源、哈希、原文和
-证据状态，允许复核；任何自动判断都不是监管或法律结论。
+retrieval 使用 BM25 与同一模型/同一维度的 Qwen 文档及 query 向量，中性行为查询融合后再重排。
+重排 provider 为 none、cloud（Qwen）和 deepseek（Pi 列表排序）。DeepSeek 的下标排列经两端
+完整性校验，失败回退。可选 BGE 与 TF-IDF 后端仍保留；不同模型缓存不混用。
 
-## 依赖方向
+当前唯一默认案例库为 data/processed/knowledge/finrisk_v2_1_20261018。列表按 9,639 份文书合并，
+保留15,620个主体案例及结构化/原文证据单元和原文绑定扩展。原始 PDF 位于 raw_pdfs。
+证据与法条通过 SHA、ID 和来源区间回核；机制指南不是法律原文，候选状态和人工待审状态继续保留。
 
-```text
-Web / OpenAPI
-      │
-      ▼
-api ──────── 只负责 HTTP、校验和依赖装配
-      │
-      ▼
-application ─ 业务用例编排
-   │      │
-   │      ├──────────────┐
-   ▼      ▼              ▼
-offline  query          risk
-   │      │              │
-   ├──────┴──────┬───────┤
-   ▼             ▼       ▼
-extraction      storage  retrieval
-         \        │       /
-          └──── domain ──┘
-                    ▲
-                   llm（被 query/offline/risk 通过同一协议调用）
-```
-
-约束：
-
-- `domain` 不依赖业务模块；
-- `api` 不写算法，`application` 不复制持久化或模型推理；
-- `extraction` 是案例和 Query 唯一文件解析实现；
-- `llm` 是全项目唯一外部大模型客户端；
-- `storage` 是案例三张 JSONL 主表的唯一写入口；
-- Query 风险流程不修改案例标签，案例入库不调用 Query 风险结论打标签。
-
-## 案例增量流程
-
-```text
-Web 上传原始文档
-  → 安全文件名与 25 MB 限制
-  → FileExtractor（PDF 文本层优先，必要时 OCR）
-  → IncrementalCaseBuilder
-      ├─ DeepSeek 严格 JSON 结构化
-      ├─ 失败时规则降级并标记人工复核
-      ├─ 原文逐字证据校验
-      ├─ cases 记录
-      ├─ case_chunks 证据/事实切片
-      └─ case_expansions 检索扩展
-  → 保存原始文件
-  → CaseRepository 三表事务式追加
-  → 刷新 manifest 与内存检索 revision
-```
-
-同一文件 SHA-256 生成同一 `U...` 案例 ID，重复上传返回 HTTP 409。写入中任一步失败时，
-三张文件恢复到原长度，原始上传副本也回滚。
-
-## Query 风险流程
-
-```text
-文字或文件
-  → 多模态抽取与文件级六类场景分类
-  → 逐句切分、原文偏移、页面坐标和上下文
-  → 强组合规则 + 场景加权关键词两阶段初判
-  → 中低置信句动态批量 DeepSeek 复核（无案例输入）
-  → 最终风险分达到门槛后执行标签约束检索
-  → BM25 + TF-IDF向量 + RRF + 本地重排
-  → 文档级分数、标签和Top案例聚合
-  → QueryAnalysisResult
-```
-
-案例检索首次调用时延迟构建内存索引；新增、停用或恢复案例会增加仓库 revision，下一次
-检索自动重建。BM25与TF-IDF向量通道共用倒排表，不依赖CUDA或外部模型权重。
-
-未来需要 BGE-M3/reranker 时，只替换 `retrieval` 的索引实现，保持
-`CaseRetrievalService.search()` 和 `MatchedCase` 不变。
-
-## 数据布局
-
-```text
-data/raw/cases/                       原始案例和 Web 上传文件
-data/raw/query/                       仅测试样本
-data/risk/keyword_db/                 唯一风险词库
-data/processed/knowledge/
-└─ case_kb_v2_1_2026-08-23/           唯一案例数据库
-   ├─ data/*.jsonl
-   ├─ dictionary/
-   ├─ reports/
-   └─ manifest.json
-```
-
-`case_origin` 区分数据来源但不分库。停用是可恢复状态，不做物理删除。
-
-## 可靠性与安全
-
-- 上传按块读取并限制体积，文件名去除路径片段；
-- API Key 只从环境变量读取，响应和日志不返回密钥；
-- LLM 强制 JSON 对象并用 Pydantic 二次校验；
-- LLM 失败时可解释降级，不吞掉警告；
-- 案例相似度不能独立触发风险，也不能覆盖独立规则/LLM 标签；
-- 原始文件、原始文本和模型生成字段分开保存；
-- `DELETE` 兼容接口实际执行停用，防止误删比赛数据。
+原始上游基础资产保留供重建，P0运行依赖精简为25份法规和机制数据，指纹及原文区间持续校验。评测参考隔离在 data/eval 中，
+不进入索引或模型输入。运行过程在本地outputs，公开评测摘要在reports/competition500。正式构建、验收及评测入口见 README。

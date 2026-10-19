@@ -209,7 +209,8 @@ class QueryProcessingResult(ContractModel):
                         raise ValueError("上下文引文必须来自当前 Query 的句子")
                     mapping = mapping_by_id[source.sentence_id]
                     if (source.document_start_offset, source.document_end_offset) != (
-                        mapping.document_start_offset, mapping.document_end_offset
+                        mapping.document_start_offset,
+                        mapping.document_end_offset,
                     ):
                         raise ValueError("上下文引文与原文偏移不一致")
                     actual = self.source_text[

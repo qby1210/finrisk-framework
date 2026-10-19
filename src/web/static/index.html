@@ -29,6 +29,9 @@
           <button class="nav-item" type="button" data-view="cases">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v15H4zM4 10h16M9 10v10"/></svg><span>案例管理</span>
           </button>
+          <button class="nav-item" type="button" data-view="evaluation">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 17V9h3v8M11 17V4h3v13M16 17v-6h3v6"/></svg><span>效果评测</span>
+          </button>
         </nav>
         <div class="sidebar-note">
           <span class="workspace-badge">本地工作区</span>
@@ -75,7 +78,10 @@
                     </select>
                   </label>
                 </div>
-                <p class="field-hint">保留完整段落；对话材料建议带上“客户 / 顾问”等说话人标记。</p>
+                <div class="query-controls">
+                  <label class="scene-field"><span>案例排序</span><select id="query-rerank"><option value="">推荐配置</option><option value="none">多路融合</option><option value="cloud">Qwen 重排</option><option value="deepseek">DeepSeek 重排</option></select></label>
+                  <label class="scene-field"><span>检索策略</span><select id="query-timing"><option value="">推荐配置</option><option value="post">Post 判定后检索</option><option value="pre">Pre 检索后判定</option><option value="adaptive">自适应融合</option></select></label>
+                </div>
                 <div class="query-input is-visible" id="query-text-panel">
                   <label class="sr-only" for="query-text">待审查文字</label>
                   <textarea
@@ -100,7 +106,7 @@
                 </div>
                 <div class="sample-row"><span>试试示例</span><button type="button" data-sample="dialogue">问答与承诺</button><button type="button" data-sample="quotation">反面话术</button><button type="button" data-sample="products">不同产品</button></div>
                 <div class="action-row">
-                  <p>判断会结合相邻语句；相关案例供复核时参考。</p>
+                  <p>定位风险，匹配案例，给出修改建议。</p>
                   <button class="primary-button" id="analyze-button" type="button">
                     <span>开始审查</span><i class="spinner"></i>
                   </button>
@@ -110,9 +116,9 @@
               </section>
 
               <aside class="usage-guide" aria-label="审查提示">
-                <div><strong>先看语境</strong><p>提问、否定和反面引用，含义不同。</p></div>
-                <div><strong>再看依据</strong><p>每条判断保留原句与前后文。</p></div>
-                <div><strong>最后复核</strong><p>没有检索到类案，也不能据此排除风险。</p></div>
+                <div><strong>语境审查</strong><p>结合问答、角色与业务条件。</p></div>
+                <div><strong>案例匹配</strong><p>检索相似事实与原文依据。</p></div>
+                <div><strong>整改建议</strong><p>逐项给出修改和核查动作。</p></div>
               </aside>
             </div>
 
@@ -125,6 +131,7 @@
                   <div><h2>审查结果</h2><p class="subtle-note">结论、语境与原文放在一起核对</p></div>
                   <div class="result-actions">
                     <button class="quiet-button" id="copy-risk-result" type="button">复制结果摘要</button>
+                    <button class="quiet-button" id="export-submission" type="button">导出比赛 JSON</button>
                     <button class="primary-button small" id="export-risk-report" type="button"><span>导出审查报告</span></button>
                   </div>
                 </div>
@@ -152,7 +159,7 @@
                     <p class="source-selection" id="source-selection" role="status" aria-live="polite">底色对应逐句风险等级；蓝框定位当前判断，蓝色下划线定位引用证据。</p>
                   </section>
                   <section class="result-subpanel top-cases-panel">
-                    <div class="subpanel-heading"><h3>相关处罚案例</h3><small>候选参考 · 可比性待核验</small></div>
+                    <div class="subpanel-heading"><h3>相关处罚案例</h3><small>查看匹配理由与原文</small></div>
                     <div class="top-case-list" id="top-cases"></div>
                   </section>
                 </div>
@@ -231,12 +238,12 @@
           <section class="view" id="cases-view">
             <header class="view-heading">
               <div><p class="eyebrow">案例资料</p><h1>案例管理</h1></div>
-              <p>查看案例原文证据；停用操作可恢复，不删除结构化记录。</p>
+              <p>按处罚文书浏览，支持查看同文书的多个主体。</p>
             </header>
             <div class="stats-grid" id="case-stats">
-              <article><span>案例总数</span><strong>—</strong></article>
+              <article><span>处罚文书</span><strong>—</strong></article>
               <article><span>当前启用</span><strong>—</strong></article>
-              <article><span>Web 新增</span><strong>—</strong></article>
+              <article><span>主体案例</span><strong>—</strong></article>
               <article><span>风险标签</span><strong>—</strong></article>
             </div>
             <section class="panel library-panel">
@@ -262,6 +269,10 @@
               <div class="pagination" id="case-pagination"></div>
             </section>
           </section>
+          <section class="view" id="evaluation-view">
+            <header class="view-heading"><div><p class="eyebrow">效果验证</p><h1>风险识别与案例匹配</h1></div><p>500个真实案例 · 200条自建Query · 六类场景 · 27类风险标签</p></header>
+            <section class="panel"><div class="panel-heading"><div><h2>独立测试集</h2><p class="subtle-note">模型辅助标注 · 开发集选择配置，测试集报告效果</p></div><a class="quiet-button" href="/api/evaluation/report" target="_blank" rel="noopener">下载评测结果</a></div><div id="evaluation-content"><div class="inline-empty">正在读取评测结果……</div></div></section>
+          </section>
         </main>
         <footer class="workspace-footer"><span>FinRisk · 保险营销合规工作台</span><span>原文可查，判断可复核。</span></footer>
       </div>
@@ -274,6 +285,6 @@
     </aside>
     <div class="toast" id="toast" role="status"></div>
     <script src="/static/source-map.js?v=source-spans-2" defer></script>
-    <script src="/static/app.js?v=source-spans-2" defer></script>
+    <script src="/static/app.js?v=competition500-20261019" defer></script>
   </body>
 </html>

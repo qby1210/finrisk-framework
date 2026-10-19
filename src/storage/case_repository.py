@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import os
+import sqlite3
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from hashlib import sha256
@@ -34,7 +35,7 @@ class DuplicateCaseError(RuntimeError):
 class CaseRepository:
     """直接管理案例主库的三份 JSONL。
 
-    现有 7,628 条记录不会重新生成。新 PDF 处理完成后按相同 schema 增量写入
+    当前知识库记录不会在启动时重新生成。新 PDF 处理完成后按相同 schema 增量写入
     cases、case_chunks 和 case_expansions，并刷新 manifest。停用案例只修改
     retrieval_status，原始 PDF、记录和证据均保留，可随时恢复。
     """
@@ -43,7 +44,10 @@ class CaseRepository:
         self.settings = settings
         self._lock = RLock()
         self._records: dict[str, dict[str, object]] = {}
+        self._source_records: dict[str, dict[str, object]] = {}
+        self._cases_by_file: dict[str, list[str]] = {}
         self._chunks_by_case: dict[str, list[dict[str, object]]] = {}
+        self._retrieval_metadata: dict[str, dict[str, object]] = {}
         self._risk_tags: set[str] = set()
         self._data_version: str | None = None
         self._latest_crawl_at: str | None = None
@@ -67,7 +71,20 @@ class CaseRepository:
         }
         with self._lock:
             self._records = records
+            self._cases_by_file = {}
+            for cid, record in records.items():
+                fid = str(record.get("file_id") or record.get("source_file") or cid)
+                self._cases_by_file.setdefault(fid, []).append(cid)
+            self._source_records = (
+                {
+                    str(row["case_id"]): row
+                    for row in _read_jsonl(self.settings.case_data_dir / "source_records.jsonl")
+                }
+                if self.settings.full_corpus
+                else {}
+            )
             self._chunks_by_case = {}
+            self._retrieval_metadata = {}
             self._risk_tags = {
                 str(tag)
                 for record in records.values()
@@ -98,7 +115,7 @@ class CaseRepository:
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("分页参数不合法")
         normalized_query = (query or "").strip().casefold()
-        records = list(self._records.values())
+        records = self._listing_records()
         if normalized_query:
             records = [record for record in records if _record_contains(record, normalized_query)]
         if risk_tag:
@@ -145,6 +162,12 @@ class CaseRepository:
                 and value <= penalty_date_to
             ]
         records.sort(key=_case_sort_key)
+        if self._document_listing:
+            grouped: dict[str, dict[str, object]] = {}
+            for record in records:
+                fid = str(record.get("file_id") or record.get("source_file") or record["case_id"])
+                grouped.setdefault(fid, record)
+            records = list(grouped.values())
         total = len(records)
         start = (page - 1) * page_size
         return CaseListPage(
@@ -169,7 +192,22 @@ class CaseRepository:
         return tuple(self._to_summary(record) for record in records)
 
     def statistics(self) -> CaseStatistics:
-        records = list(self._records.values())
+        records = self._listing_records()
+        subject_count = len(self._records)
+        if self._document_listing:
+            grouped: dict[str, list[dict[str, object]]] = {}
+            for record in records:
+                fid = str(record.get("file_id") or record.get("source_file") or record["case_id"])
+                grouped.setdefault(fid, []).append(record)
+            records = [
+                {
+                    **members[0],
+                    "retrieval_status": "active"
+                    if any(r.get("retrieval_status") == "active" for r in members)
+                    else "inactive",
+                }
+                for members in grouped.values()
+            ]
         return CaseStatistics(
             total_cases=len(records),
             base_cases=sum(1 for record in records if record.get("case_origin") != "web_ingestion"),
@@ -179,7 +217,23 @@ class CaseRepository:
             data_version=self._data_version,
             latest_crawl_at=self._latest_crawl_at,
             latest_penalty_date=self._latest_penalty_date,
+            subject_case_count=subject_count,
+            listing_unit="document" if self._document_listing else "case",
         )
+
+    @property
+    def _document_listing(self) -> bool:
+        return bool(self._source_records) and self.settings.full_corpus
+
+    def _listing_records(self) -> list[dict[str, object]]:
+        records = list(self._records.values())
+        if self._document_listing:
+            records.extend(
+                record
+                for record in self._source_records.values()
+                if str(record["file_id"]) not in self._cases_by_file
+            )
+        return records
 
     def add_case(
         self,
@@ -187,12 +241,22 @@ class CaseRepository:
         chunks: list[dict[str, object]],
         expansions: list[dict[str, object]],
     ) -> CaseDetail:
-        case_id = str(record.get("case_id") or "")
-        if not case_id:
-            raise ValueError("案例缺少 case_id")
+        return self.add_cases([(record, chunks, expansions)])[0]
+
+    def add_cases(
+        self,
+        artifacts: list[tuple[dict[str, object], list[dict[str, object]], list[dict[str, object]]]],
+        *,
+        source_text: str | None = None,
+    ) -> list[CaseDetail]:
+        records = [item[0] for item in artifacts]
+        ids = [str(r.get("case_id") or "") for r in records]
+        if not ids or any(not cid for cid in ids) or len(set(ids)) != len(ids):
+            raise ValueError("案例ID为空或重复")
         with self._lock:
-            if case_id in self._records:
-                raise DuplicateCaseError(case_id)
+            for case_id in ids:
+                if case_id in self._records:
+                    raise DuplicateCaseError(case_id)
             paths = (
                 self.settings.chunks_path,
                 self.settings.expansions_path,
@@ -207,23 +271,65 @@ class CaseRepository:
                 if self.settings.manifest_path.is_file()
                 else None
             )
+            connection = None
             try:
-                _append_jsonl(self.settings.chunks_path, chunks)
-                _append_jsonl(self.settings.expansions_path, expansions)
-                _append_jsonl(self.settings.cases_path, [record])
+                registry = self.settings.case_kb_root / "evidence_registry.sqlite3"
+                if source_text is not None and registry.is_file():
+                    connection = sqlite3.connect(registry)
+                    source_hash = sha256(source_text.encode()).hexdigest()
+                    for record, chunks, _ in artifacts:
+                        fid = str(record["file_id"])
+                        connection.execute(
+                            "INSERT OR REPLACE INTO sources VALUES (?,?,?)",
+                            (fid, source_text, source_hash),
+                        )
+                        for chunk in chunks:
+                            quote = str(chunk.get("chunk_text") or "")
+                            start = source_text.find(quote)
+                            if not quote or start < 0:
+                                continue
+                            unit = {
+                                "source_text": quote,
+                                "source_spans": [{"start": start, "end": start + len(quote)}],
+                                "source_sha256": source_hash,
+                                "application_case_ids": [record["case_id"]],
+                            }
+                            connection.execute(
+                                "INSERT INTO units VALUES (?,?,?)",
+                                (chunk["chunk_id"], fid, json.dumps(unit, ensure_ascii=False)),
+                            )
+                _append_jsonl(
+                    self.settings.chunks_path, [c for _, chunks, _ in artifacts for c in chunks]
+                )
+                _append_jsonl(
+                    self.settings.expansions_path,
+                    [e for _, _, expansions in artifacts for e in expansions],
+                )
+                _append_jsonl(self.settings.cases_path, records)
                 self._refresh_manifest()
+                if connection is not None:
+                    connection.commit()
             except Exception:
+                if connection is not None:
+                    connection.rollback()
                 for path, (existed, size) in snapshots.items():
                     _restore_file(path, existed=existed, size=size)
                 if manifest_original is not None:
                     self.settings.manifest_path.write_bytes(manifest_original)
                 self.settings.manifest_path.with_suffix(".json.tmp").unlink(missing_ok=True)
                 raise
-            self._records[case_id] = dict(record)
-            self._chunks_by_case[case_id] = [dict(chunk) for chunk in chunks]
-            self._risk_tags.update(str(tag) for tag in _as_list(record.get("risk_tags")) if tag)
+            finally:
+                if connection is not None:
+                    connection.close()
+            for record, chunks, _ in artifacts:
+                case_id = str(record["case_id"])
+                self._records[case_id] = dict(record)
+                fid = str(record.get("file_id") or record.get("source_file") or case_id)
+                self._cases_by_file.setdefault(fid, []).append(case_id)
+                self._chunks_by_case[case_id] = [dict(chunk) for chunk in chunks]
+                self._risk_tags.update(str(tag) for tag in _as_list(record.get("risk_tags")) if tag)
             self._revision += 1
-        return self._to_detail(record, chunks)
+        return [self._to_detail(record, chunks) for record, chunks, _ in artifacts]
 
     def set_retrieval_status(self, case_id: str, *, active: bool) -> CaseDetail:
         """停用或恢复案例，不删除任何记录与原始材料。"""
@@ -246,20 +352,30 @@ class CaseRepository:
     def iter_retrieval_documents(self) -> Iterator[RetrievalDocument]:
         active_ids = {
             case_id
-            for case_id, record in self._records.items()
+            for case_id, record in {**self._records, **self._source_records}.items()
             if record.get("retrieval_status") == "active"
         }
         for chunk in _read_jsonl(self.settings.chunks_path):
             case_id = str(chunk.get("case_id") or "")
-            if case_id not in active_ids or not chunk.get("retrieval_enabled", True):
+            linked_ids = tuple(
+                str(value)
+                for value in (_as_list(chunk.get("case_ids")) or [case_id])
+                if str(value) in active_ids
+            )
+            if not linked_ids or not chunk.get("retrieval_enabled", True):
                 continue
             if chunk.get("chunk_type") not in {"fact", "evidence"}:
                 continue
             text = str(chunk.get("chunk_text") or "").strip()
             if text:
+                self._retrieval_metadata[str(chunk.get("chunk_id"))] = {
+                    "file_id": chunk.get("file_id"),
+                    "source_span": chunk.get("source_span"),
+                    "origin": "case_chunk",
+                }
                 yield RetrievalDocument(
                     unit_id=str(chunk.get("chunk_id")),
-                    case_ids=(case_id,),
+                    case_ids=linked_ids,
                     text=text,
                     source="case_chunk",
                     weight=_as_float(chunk.get("retrieval_weight"), 1.0),
@@ -276,6 +392,14 @@ class CaseRepository:
             )
             text = str(expansion.get("expansion_text") or "").strip()
             if text and case_ids:
+                self._retrieval_metadata[str(expansion.get("expansion_id"))] = {
+                    "origin": "case_expansion",
+                    "grounding_ids": [
+                        str(eid)
+                        for link in _as_dict_list(expansion.get("case_links"))
+                        for eid in _as_list(link.get("grounding_chunk_ids"))
+                    ],
+                }
                 yield RetrievalDocument(
                     unit_id=str(expansion.get("expansion_id")),
                     case_ids=case_ids,
@@ -283,6 +407,13 @@ class CaseRepository:
                     source="case_expansion",
                     weight=_as_float(expansion.get("retrieval_weight"), 0.35),
                 )
+
+    def retrieval_metadata(self, unit_id: str) -> dict[str, object]:
+        return self._retrieval_metadata.get(unit_id, {})
+
+    def retrieval_summaries(self) -> tuple[CaseSummary, ...]:
+        """Include explicitly unattributed source views without changing party case counts."""
+        return (*self.summaries(), *(self._to_summary(r) for r in self._source_records.values()))
 
     def risk_dictionary(self) -> tuple[str, ...]:
         if not self.settings.risk_dictionary_path.is_file():
@@ -303,7 +434,7 @@ class CaseRepository:
         return tuple(dict.fromkeys(labels)) or self.risk_tags
 
     def _record(self, case_id: str) -> dict[str, object]:
-        record = self._records.get(case_id)
+        record = self._records.get(case_id) or self._source_records.get(case_id)
         if record is None:
             raise CaseNotFoundError(case_id)
         return record
@@ -315,13 +446,14 @@ class CaseRepository:
         chunks = [
             chunk
             for chunk in _read_jsonl(self.settings.chunks_path)
-            if chunk.get("case_id") == case_id
+            if chunk.get("case_id") == case_id or case_id in _as_list(chunk.get("case_ids"))
         ]
         self._chunks_by_case[case_id] = chunks
         return chunks
 
     def _to_summary(self, record: dict[str, object]) -> CaseSummary:
         case_id = str(record["case_id"])
+        fid = str(record.get("file_id") or record.get("source_file") or case_id)
         return CaseSummary(
             case_id=case_id,
             case_title=_optional_string(record.get("case_title")),
@@ -331,6 +463,7 @@ class CaseRepository:
             penalty_content=_optional_string(record.get("penalty_content")),
             regulator=_optional_string(record.get("regulator")),
             penalty_date=_as_date(record.get("penalty_date")),
+            publish_date=_as_date(record.get("publish_date")),
             institution_type=_optional_string(record.get("institution_type")),
             source_url=_optional_string(record.get("source_url")),
             risk_tags=[str(value) for value in _as_list(record.get("risk_tags"))],
@@ -339,6 +472,8 @@ class CaseRepository:
             retrieval_status=str(record.get("retrieval_status") or "inactive"),
             evidence_status=str(record.get("evidence_status") or "limited"),
             is_user_managed=record.get("case_origin") == "web_ingestion",
+            document_id=fid,
+            subject_case_count=max(1, len(self._cases_by_file.get(fid, []))),
         )
 
     def _to_detail(
@@ -354,6 +489,13 @@ class CaseRepository:
             legal_basis_refs=_as_dict_list(record.get("legal_basis_refs")),
             source_file=_optional_string(record.get("source_file")),
             source_sha256=_optional_string(record.get("source_sha256")),
+            raw_source_file=_optional_string(record.get("raw_source_file")),
+            party_type=_optional_string(record.get("party_type")),
+            penalty_amounts=_as_dict_list(record.get("penalty_amounts")),
+            field_sources=dict(_as_dict(record.get("field_sources")) or {}),
+            field_quality={
+                str(k): str(v) for k, v in (_as_dict(record.get("field_quality")) or {}).items()
+            },
             quality_flags=[str(value) for value in _as_list(record.get("quality_flags"))],
             data_version=str(record.get("data_version") or "case_kb_incremental_v1"),
             evidence_chunks=[
@@ -368,6 +510,13 @@ class CaseRepository:
                     source_span=_as_dict(chunk.get("source_span")),
                 )
                 for chunk in chunks
+            ],
+            related_cases=[
+                self._to_summary(self._records[cid])
+                for cid in self._cases_by_file.get(
+                    str(record.get("file_id") or record.get("source_file") or record["case_id"]), []
+                )
+                if cid != record["case_id"]
             ],
         )
 

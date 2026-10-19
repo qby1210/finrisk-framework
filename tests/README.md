@@ -1,19 +1,21 @@
-# 测试说明
+# 验证入口
 
-测试按业务模块组织：
-
-- `api`：首页、Query 与案例只读接口；
-- `application`：Query 文件用例；
-- `extraction`：PDF/图片/TXT/DOCX、OCR 假引擎和偏移；
-- `offline`：真实案例 PDF 的不入库三表构建；
-- `query`：六类分类、切句、社交平台项目符号和原文映射；
-- `risk`：真实词库、五档阈值、检索门控和真实小红书本地冒烟；
-- `storage`：同一案例库写入、停用、BM25/向量/RRF检索和标签门控。
+本地功能回归不请求外部模型：
 
 ```powershell
-uv run pytest -q
-uv run python scripts/evaluate_query_test_set_160.py --mode full
+.venv\Scripts\python.exe -X utf8 -m pytest -q
+node --test agent_runtime/test/*.test.mjs tests/web/*.test.mjs
+.venv\Scripts\python.exe -X utf8 -m ruff check src scripts tests
+.venv\Scripts\python.exe -X utf8 -m mypy src
 ```
 
-测试默认不访问外网、不写正式案例库。真实 PDF 测试只生成内存产物；真实小红书样本显式
-构造 `llm_client=None`。依赖交付数据或用户样本的测试在文件缺失时应跳过。
+覆盖原文定位、跨句语境、否定范围、多主体拆分、非保险排除、入库回滚、证据编号、三种重排与三种检索时机。
+
+真实API效果验证只使用新的500案例协议：
+
+```powershell
+.venv\Scripts\python.exe -X utf8 scripts/audit_competition_dataset.py
+.venv\Scripts\python.exe -X utf8 scripts/benchmark_competition500.py --help
+```
+
+数据划分、标注来源和指标定义见 `docs/dataset_card.md`。旧效果集和对应脚本已退出当前评测。

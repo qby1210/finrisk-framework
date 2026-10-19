@@ -57,24 +57,26 @@ class CaseManagementService:
             logical_path = destination.relative_to(self.settings.project_root).as_posix()
         except ValueError:
             logical_path = f"upload://{destination.name}"
-        artifacts = await self.builder.build(extraction, source_file=logical_path)
+        artifacts = await self.builder.build_many(extraction, source_file=logical_path)
+        if not artifacts:
+            raise ValueError("未识别到保险相关处罚案例")
         destination.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(shutil.copy2, file_path, destination)
         try:
-            detail = await asyncio.to_thread(
-                self.repository.add_case,
-                artifacts.record,
-                artifacts.chunks,
-                artifacts.expansions,
+            details = await asyncio.to_thread(
+                self.repository.add_cases,
+                [(a.record, a.chunks, a.expansions) for a in artifacts],
+                source_text=extraction.full_text,
             )
         except Exception:
             destination.unlink(missing_ok=True)
             raise
         return CaseIngestionResult(
-            case=detail,
+            case=details[0],
+            cases=details,
             extraction_method=extraction.extraction_method.value,
-            llm_used=artifacts.llm_used,
-            warnings=artifacts.warnings,
+            llm_used=any(a.llm_used for a in artifacts),
+            warnings=list(dict.fromkeys(w for a in artifacts for w in a.warnings)),
         )
 
     def list_cases(

@@ -30,8 +30,15 @@ _STRUCTURAL_BOUNDARY = re.compile(
     re.IGNORECASE,
 )
 _OPEN_TO_CLOSE = {
-    "“": "”", "‘": "’", "「": "」", "『": "』", "（": "）",
-    "(": ")", "[": "]", "【": "】", "《": "》",
+    "“": "”",
+    "‘": "’",
+    "「": "」",
+    "『": "』",
+    "（": "）",
+    "(": ")",
+    "[": "]",
+    "【": "】",
+    "《": "》",
 }
 _CLOSERS = frozenset((*_OPEN_TO_CLOSE.values(), '"'))
 _TERMINATORS = frozenset("。！？!?；;")
@@ -103,9 +110,7 @@ def split_sentences(text: str) -> list[SentenceSpan]:
             else:
                 break
         # 引号/括号里的标点不拆开“‘保证收益。’是错误话术”这一完整判断。
-        can_close = not stack or (
-            not remaining and (end == len(text) or text[end].isspace())
-        )
+        can_close = not stack or (not remaining and (end == len(text) or text[end].isspace()))
         if can_close:
             _append_sentence(sentences, text, segment_start, end)
             segment_start = end

@@ -108,8 +108,8 @@ def test_retrieval_and_repository_support_combined_metadata_filters(tmp_path: Pa
     assert matches[0].party_name == "甲保险公司某分公司"
     assert matches[0].institution_type == "保险公司分支机构"
     assert matches[0].source_url == "https://example.test/C001"
-    assert "风险标签一致" in matches[0].match_reason
-    assert "过滤条件" in matches[0].match_reason
+    assert "收益承诺" in matches[0].match_reason
+    assert "保证收益" in matches[0].match_reason
     assert (
         service.search(
             "保证收益百分之十",

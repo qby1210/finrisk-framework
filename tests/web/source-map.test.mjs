@@ -58,6 +58,17 @@ test("selecting a safe sentence keeps its original severity", () => {
   assert.equal(view.selected.pieces.some(piece => piece.evidence), false);
 });
 
+test("unknown business facts use pending styling even with a high attention score", () => {
+  const result = fixture(["产品停售公告待补。"], ["high"]);
+  result.risk_assessments[0].decision_state = "insufficient_information";
+  result.risk_assessments[0].risk_level_name = "信息不足";
+  result.risk_assessments[0].risk_score = .8;
+  const view = buildView(result);
+  assert.equal(view.entries[0].level, "unknown");
+  assert.equal(view.entries[0].levelName, "信息不足");
+  assert.equal(view.entries[0].score, .8);
+});
+
 for (const fault of ["utf16", "overlap", "bounds", "changed_text", "duplicate", "missing_text", "missing_assessment"]) {
   test(`rejects ${fault} instead of painting another sentence`, () => {
     const result = fixture(["📢 内容。", "后一句。"]);

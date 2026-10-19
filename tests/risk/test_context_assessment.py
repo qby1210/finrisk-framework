@@ -106,11 +106,12 @@ def test_short_answer_uses_question_for_risk_and_retrieval_but_does_not_blame_cu
 
 
 def test_duplicate_answer_quotes_prefer_the_assessed_sentence_not_the_first_occurrence() -> None:
-    query, result, _ = run(
-        "客户：保证收益吗？\n顾问：是的。\n顾问：是的。", ContextReviewer()
+    query, result, _ = run("客户：保证收益吗？\n顾问：是的。\n顾问：是的。", ContextReviewer())
+    evidence = next(
+        item
+        for item in result.risk_assessments[-1].evidence
+        if item.source == "llm_semantic_evidence"
     )
-    evidence = next(item for item in result.risk_assessments[-1].evidence
-                    if item.source == "llm_semantic_evidence")
     assert evidence.sentence_id == query.sentences[-1].sentence_id
     assert evidence.document_start_offset == query.source_mappings[-1].document_start_offset
 

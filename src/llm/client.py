@@ -6,10 +6,11 @@ import asyncio
 import json
 import os
 import shutil
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
-from typing import Protocol
+from typing import Protocol, cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -96,6 +97,8 @@ class PiAgentLLMClient:
         self._ready: asyncio.Future[None] | None = None
         self._pending: dict[str, asyncio.Future[_BridgeReply]] = {}
         self._closed = False
+        self._tool_handlers: dict[str, Callable[[str, dict[str, object]], Awaitable[object]]] = {}
+        self._tool_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def model_name(self) -> str:
@@ -122,6 +125,20 @@ class PiAgentLLMClient:
         await self._ensure_worker()
 
     async def complete_json(self, request: JsonChatRequest) -> JsonChatResponse:
+        return await self._complete_json(request)
+
+    async def complete_json_with_tools(
+        self,
+        request: JsonChatRequest,
+        handler: Callable[[str, dict[str, object]], Awaitable[object]],
+    ) -> JsonChatResponse:
+        return await self._complete_json(request, handler)
+
+    async def _complete_json(
+        self,
+        request: JsonChatRequest,
+        handler: Callable[[str, dict[str, object]], Awaitable[object]] | None = None,
+    ) -> JsonChatResponse:
         started = perf_counter()
         async with self._semaphore:
             for attempt in range(1, self._settings.max_retries + 2):
@@ -129,6 +146,8 @@ class PiAgentLLMClient:
                 request_id = uuid4().hex
                 future: asyncio.Future[_BridgeReply] = asyncio.get_running_loop().create_future()
                 self._pending[request_id] = future
+                if handler is not None:
+                    self._tool_handlers[request_id] = handler
                 try:
                     await self._send(
                         {
@@ -170,6 +189,7 @@ class PiAgentLLMClient:
                     raise LLMProviderError("Pi Agent 审查超时") from None
                 finally:
                     self._pending.pop(request_id, None)
+                    self._tool_handlers.pop(request_id, None)
         raise LLMProviderError("Pi Agent 未返回结果")  # pragma: no cover
 
     async def _ensure_worker(self) -> None:
@@ -189,36 +209,42 @@ class PiAgentLLMClient:
                 raise LLMProviderError(
                     "Pi Agent 依赖未就绪；需 Node.js 22.19+，并在 agent_runtime 执行 npm ci"
                 )
-            self._ready = asyncio.get_running_loop().create_future()
-            worker_env = os.environ.copy()
-            worker_env["FINRISK_PI_API_KEY"] = self._settings.api_key
-            try:
-                self._process = await asyncio.create_subprocess_exec(
-                    self._settings.node_binary,
-                    str(PI_RUNTIME_DIR / "worker.mjs"),
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=PI_RUNTIME_DIR,
-                    env=worker_env,
-                    limit=8 * 1024 * 1024,
-                    creationflags=0x08000000 if os.name == "nt" else 0,
-                )
-                self._reader_task = asyncio.create_task(self._read_replies(self._process))
-                self._stderr_task = asyncio.create_task(self._drain_stderr(self._process))
-                await asyncio.wait_for(self._ready, self._settings.connect_timeout_seconds)
-            except (OSError, TimeoutError, LLMProviderError) as error:
-                reason = (
-                    "启动超时"
-                    if isinstance(error, TimeoutError)
-                    else f"系统错误 {error.errno}"
-                    if isinstance(error, OSError)
-                    else "进程未就绪"
-                )
-                await self._stop_worker()
-                raise LLMProviderError(
-                    f"无法启动本地 Pi Agent（{reason}），请检查 Node.js 和 npm 依赖"
-                ) from None
+            for startup_attempt in range(2):
+                self._ready = asyncio.get_running_loop().create_future()
+                worker_env = os.environ.copy()
+                worker_env["FINRISK_PI_API_KEY"] = self._settings.api_key
+                try:
+                    self._process = await asyncio.create_subprocess_exec(
+                        self._settings.node_binary,
+                        str(PI_RUNTIME_DIR / "worker.mjs"),
+                        stdin=asyncio.subprocess.PIPE,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=PI_RUNTIME_DIR,
+                        env=worker_env,
+                        limit=8 * 1024 * 1024,
+                        creationflags=0x08000000 if os.name == "nt" else 0,
+                    )
+                    self._reader_task = asyncio.create_task(self._read_replies(self._process))
+                    self._stderr_task = asyncio.create_task(self._drain_stderr(self._process))
+                    await asyncio.wait_for(
+                        self._ready, self._settings.connect_timeout_seconds * (startup_attempt + 1)
+                    )
+                    return
+                except (OSError, TimeoutError, LLMProviderError) as error:
+                    reason = (
+                        "启动超时"
+                        if isinstance(error, TimeoutError)
+                        else f"系统错误 {error.errno}"
+                        if isinstance(error, OSError)
+                        else "进程未就绪"
+                    )
+                    await self._stop_worker()
+                    if isinstance(error, TimeoutError) and startup_attempt == 0:
+                        continue
+                    raise LLMProviderError(
+                        f"无法启动本地 Pi Agent（{reason}），请检查 Node.js 和 npm 依赖"
+                    ) from None
 
     async def _send(self, payload: dict[str, object]) -> None:
         process = self._process
@@ -242,7 +268,13 @@ class PiAgentLLMClient:
         assert process.stdout is not None
         try:
             while raw := await process.stdout.readline():
-                reply = _BridgeReply.model_validate_json(raw)
+                decoded = json.loads(raw)
+                if decoded.get("type") == "tool_call":
+                    task = asyncio.create_task(self._dispatch_tool(decoded))
+                    self._tool_tasks.add(task)
+                    task.add_done_callback(self._tool_tasks.discard)
+                    continue
+                reply = _BridgeReply.model_validate(decoded)
                 if reply.type == "ready":
                     if self._ready is not None and not self._ready.done():
                         self._ready.set_result(None)
@@ -260,6 +292,27 @@ class PiAgentLLMClient:
                 if not pending.done():
                     pending.set_exception(error)
 
+    async def _dispatch_tool(self, message: dict[str, object]) -> None:
+        reply: dict[str, object] = {
+            "type": "tool_result",
+            "id": message.get("id"),
+            "tool_call_id": message.get("tool_call_id"),
+        }
+        handler = self._tool_handlers.get(str(message.get("id")))
+        try:
+            if handler is None or not isinstance(message.get("args"), dict):
+                raise ValueError("当前审查未注册该工具请求")
+            reply["result"] = await asyncio.wait_for(
+                handler(str(message.get("name")), cast(dict[str, object], message["args"])),
+                timeout=30,
+            )
+        except Exception:  # noqa: BLE001 - tool failure must return to the bounded Pi loop
+            reply["error"] = "只读证据工具不可用、参数不合法或预算已用尽；请保留待核状态。"
+        try:
+            await self._send(reply)
+        except LLMProviderError:
+            pass
+
     @staticmethod
     async def _drain_stderr(process: asyncio.subprocess.Process) -> None:
         assert process.stderr is not None
@@ -271,6 +324,10 @@ class PiAgentLLMClient:
         if process is not None and process.returncode is None:
             if process.stdin is not None:
                 process.stdin.close()
+                try:
+                    await asyncio.wait_for(process.stdin.wait_closed(), 1)
+                except (OSError, TimeoutError):
+                    pass
             try:
                 await asyncio.wait_for(process.wait(), 3)
             except TimeoutError:
@@ -280,14 +337,17 @@ class PiAgentLLMClient:
             if task is not None:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+        self._reader_task = None
+        self._stderr_task = None
 
     async def aclose(self) -> None:
         self._closed = True
+        tasks = tuple(self._tool_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         await self._stop_worker()
-
-
-# 旧调用者导入名继续可用，其实现也统一经过 Pi，不保留 HTTP 直调通路。
-OpenAICompatibleLLMClient = PiAgentLLMClient
 
 
 def create_llm_client_from_env() -> PiAgentLLMClient | None:

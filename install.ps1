@@ -56,9 +56,9 @@ if (-not (Test-Path -LiteralPath $envPath)) {
     Copy-Item -LiteralPath (Join-Path $projectRoot ".env.example") -Destination $envPath
 }
 
-& $venvPython (Join-Path $projectRoot "scripts\verify_delivery.py")
+& $venvPython (Join-Path $projectRoot "scripts\verify_delivery.py") --allow-missing-knowledge
 if ($LASTEXITCODE -ne 0) {
     throw "交付数据校验失败。"
 }
 
-Write-Host "FinRisk 安装完成。运行 start.bat 或 ./start.ps1 启动系统。"
+Write-Host "FinRisk 依赖安装完成。知识库就绪后运行 start.bat 或 ./start.ps1 启动系统。"

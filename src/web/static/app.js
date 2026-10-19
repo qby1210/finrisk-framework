@@ -92,6 +92,7 @@ el("#query-text").addEventListener("input", (event) => {
 el("#analyze-button").addEventListener("click", analyzeQuery);
 el("#copy-risk-result").addEventListener("click", copyRiskResult);
 el("#export-risk-report").addEventListener("click", exportRiskReport);
+el("#export-submission").addEventListener("click", exportSubmission);
 el("#save-review").addEventListener("click", saveQueryReview);
 el("#risk-filter").addEventListener("change", (event) => {
   state.riskFilter = event.target.value;
@@ -131,12 +132,13 @@ function switchView(view) {
   document.querySelectorAll(".view").forEach((panel) => panel.classList.remove("is-visible"));
   el(`#${view}-view`)?.classList.add("is-visible");
   el("#current-view-label").textContent = {
-    risk: "材料审查", "case-entry": "案例录入", cases: "案例管理",
+    risk: "材料审查", "case-entry": "案例录入", cases: "案例管理", evaluation: "效果评测",
   }[view] || "工作台";
   if (view === "cases") {
     loadStatistics();
     loadCases();
   }
+  if (view === "evaluation") loadEvaluation();
   window.location.hash = view;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -178,8 +180,12 @@ async function loadHealth() {
   try {
     const data = await api("/api/health");
     el("#health-state").classList.add("is-ready");
-    el("#health-text").textContent = `${data.active_case_count.toLocaleString("zh-CN")} 条案例可用`;
+    el("#health-text").textContent = `${data.active_case_count.toLocaleString("zh-CN")} ${data.case_listing_unit === "document" ? "份新库文书" : "条案例"}可用`;
     const runtime = data.agent_runtime;
+    const rerankNames = {none:"多路融合",cloud:"Qwen 重排",deepseek:"DeepSeek 重排"};
+    const timingNames = {post:"Post",pre:"Pre",adaptive:"自适应融合"};
+    el("#query-rerank").options[0].textContent = `推荐 · ${rerankNames[data.retrieval?.rerank_provider] || "当前配置"}`;
+    el("#query-timing").options[0].textContent = `推荐 · ${timingNames[data.retrieval?.timing] || "当前配置"}`;
     const mode = !data.llm_model ? "本地规则模式"
       : runtime?.available ? `Pi Agent · ${data.llm_model}` : "Agent 依赖未就绪，审查将提示降级";
     el("#health-state").title = `${mode} · 数据版本 ${data.data_version || "—"}`;
@@ -201,7 +207,8 @@ async function analyzeQuery() {
     options = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, scene }),
+      body: JSON.stringify({ text, scene, rerank_provider: el("#query-rerank").value || null,
+        retrieval_timing: el("#query-timing").value || null }),
     };
   } else {
     if (!state.queryFile) return showFormError("#query-error", "请先选择 Query 文件。");
@@ -209,6 +216,8 @@ async function analyzeQuery() {
     form.append("file", state.queryFile);
     const scene = el("#query-scene").value;
     if (scene) form.append("scene", scene);
+    if (el("#query-rerank").value) form.append("rerank_provider", el("#query-rerank").value);
+    if (el("#query-timing").value) form.append("retrieval_timing", el("#query-timing").value);
     path = "/api/query/analyze/file";
     options = { method: "POST", body: form };
   }
@@ -249,13 +258,12 @@ function renderRiskResult() {
   el("#risk-empty").hidden = true;
   el("#risk-content").hidden = false;
   el("#risk-summary").innerHTML = `
-    <article class="summary-card level-${escapeHtml(summary.overall_level)}">
+    <article class="summary-card level-${summary.decision_state === "insufficient_information" ? "unknown" : escapeHtml(summary.overall_level)}">
       <span>整体风险</span><strong>${escapeHtml(summary.overall_level_name)}</strong>
       <small>${escapeHtml(summary.action)}</small>
     </article>
-    <article class="summary-card"><span>风险程度分</span><strong>${formatScore(summary.overall_score)}</strong><small>范围 0–1，用于内部风险分级</small></article>
+    <article class="summary-card"><span>风险关注分</span><strong>${formatScore(summary.overall_score)}</strong><small>范围 0–1；信息不足时不代表风险已成立</small></article>
     <article class="summary-card"><span>需关注语句</span><strong>${summary.risky_sentence_count} / ${summary.sentence_count}</strong><small>共 ${summary.retrieval_sentence_count} 句检索类案</small></article>
-    <article class="summary-card"><span>语义复核</span><strong>${summary.llm_reviewed_sentence_count} 句</strong><small>${summary.pending_review_sentence_count || 0} 句仍需复核 · 本地直出 ${summary.local_direct_sentence_count} 句</small></article>
   `;
   el("#review-status").value = "confirmed";
   el("#review-scene").value = "";
@@ -264,7 +272,8 @@ function renderRiskResult() {
   el("#review-state").textContent = "尚未保存人工复核";
   el("#risk-warnings").innerHTML = summary.warnings
     .map((warning) => `<p>提示：${escapeHtml(warning)}</p>`)
-    .join("");
+    .join("") + (summary.missing_facts || [])
+    .map((fact) => `<p>待补事实：${escapeHtml(fact)}</p>`).join("");
   const classification = result.classification;
   const methodLabel = classificationMethodLabels[classification.method] || classification.method;
   el("#classification-note").textContent = `${sceneLabels[classification.scene] || classification.scene} · ${formatPercent(classification.confidence)} · ${methodLabel}`;
@@ -273,7 +282,7 @@ function renderRiskResult() {
   el("#extraction-note").textContent = `${extraction.extraction_method} · ${extraction.page_count} 页 · OCR ${extraction.ocr_page_count} 页 · 质量 ${quality} · SHA-256 ${extraction.checksum_sha256.slice(0, 10)}…`;
 const timing = result.stage_timings_ms || {};
   const riskTiming = summary.stage_timings_ms || {};
-  el("#timing-note").textContent = `总耗时 ${formatDuration(timing.total)} · LLM ${formatDuration(riskTiming.llm_review)} · 检索 ${formatDuration(riskTiming.case_retrieval)}`;
+  el("#timing-note").textContent = `总耗时 ${formatDuration(timing.total)} · LLM ${formatDuration(riskTiming.llm_review)} · 前检索 ${formatDuration(riskTiming.pre_retrieval)} · 后检索 ${formatDuration(riskTiming.case_retrieval)}`;
   const runs = summary.agent_runs || [];
   el("#agent-trace-note").textContent = runs.length
     ? `Pi Agent ${runs[0].version} · ${runs.length} 次语义审查 · ${runs.reduce((n, run) => n + run.turns, 0)} 轮 · ${runs.reduce((n, run) => n + run.tool_calls, 0)} 次工具调用 · ${runs.reduce((n, run) => n + run.tool_failures, 0)} 次提交校验失败`
@@ -312,7 +321,11 @@ function renderRiskSentences() {
     const context = contexts.get(item.sentence_id);
     const pageNumbers = [...new Set((mapping?.regions || []).map((region) => region.page_number))];
     const location = pageNumbers.length ? `第 ${pageNumbers.join("、")} 页` : "文本输入";
-    const tags = item.risk_labels.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
+    const unknown = item.decision_state === "insufficient_information";
+    const tags = (unknown ? (item.candidate_labels || []) : item.risk_labels)
+      .map((tag) => `<span class="tag">${unknown ? "候选：" : ""}${escapeHtml(tag)}</span>`).join("");
+    const missingFacts = (item.missing_facts || [])
+      .map((fact) => `<p class="reasoning">待补事实：${escapeHtml(fact)}</p>`).join("");
     const evidence = item.evidence.map(value => `<li>${escapeHtml(value.description)} ${value.sentence_id
       ? `<button class="source-link" type="button" data-source-sentence="${escapeHtml(value.sentence_id)}" ${sourceRangeAttributes(value)}>定位证据 · ${sourceLabel(value.sentence_id)}</button>` : ""}</li>`).join("");
     const matches = item.matched_cases.map((matched) => `
@@ -320,12 +333,13 @@ function renderRiskSentences() {
         <span><b>${escapeHtml(matched.case_id)}</b><em>排序分 ${formatScore(matched.score)}</em></span>
         <strong>${escapeHtml(matched.case_title || matched.violation_behavior.slice(0, 72))}</strong>
         <small>${escapeHtml(matched.matched_risk_tags.join(" · ") || matched.risk_tags.join(" · ") || "未标注")}</small>
-        <small class="score-breakdown">BM25 ${formatScore(matched.bm25_score)} · TF-IDF ${formatScore(matched.vector_score)} · RRF ${formatScore(matched.rrf_score)}</small>
+        <small class="score-breakdown">BM25 ${formatScore(matched.bm25_score)} · 向量 ${formatScore(matched.vector_score)} · RRF ${formatScore(matched.rrf_score)}</small>
+        <small>${matched.literal_verified ? "原文已核对" : "类案匹配"} · ${escapeHtml(matched.file_id || "")}</small>
         <small>${escapeHtml(matched.match_reason || ("命中证据切片 " + matched.matched_unit_id))}</small>
       </button>
     `).join("");
     return `
-      <article class="risk-card level-${escapeHtml(item.risk_level)} ${state.sourceSelection?.sentenceId === item.sentence_id ? "is-selected" : ""}" id="sentence-${escapeHtml(item.sentence_id)}" data-sentence-id="${escapeHtml(item.sentence_id)}" tabindex="-1">
+      <article class="risk-card level-${unknown ? "unknown" : escapeHtml(item.risk_level)} ${state.sourceSelection?.sentenceId === item.sentence_id ? "is-selected" : ""}" id="sentence-${escapeHtml(item.sentence_id)}" data-sentence-id="${escapeHtml(item.sentence_id)}" tabindex="-1">
         <div class="risk-body">
           <div class="risk-card-head">
             <div><button class="sentence-number source-link" type="button" data-source-sentence="${escapeHtml(item.sentence_id)}" aria-label="${FinRiskSource.label(index)} 定位当前句原文">${FinRiskSource.label(index)} ↗</button><span class="level-badge">${escapeHtml(item.risk_level_name)}</span>${tags}</div>
@@ -333,6 +347,8 @@ function renderRiskSentences() {
           </div>
           <p class="risk-text">${escapeHtml(item.text)}</p>
           <p class="reasoning">${escapeHtml(item.reasoning)}</p>
+          ${(item.remediation_suggestions || []).length ? `<div class="context-details"><strong>修改建议</strong><ul>${item.remediation_suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ul></div>` : ""}
+          ${missingFacts}
           <div class="sentence-meta">
             <span>${escapeHtml(location)}</span>
             <span>偏移 ${mapping?.document_start_offset ?? "—"}–${mapping?.document_end_offset ?? "—"}</span>
@@ -397,7 +413,7 @@ function renderTopCases() {
     state.riskResult.risk_assessments.some(item => item.retrieval_status === "unavailable")
       ? "本次类案检索暂不可用。请独立核对风险与原文。"
       : state.riskResult.risk_summary.retrieval_sentence_count
-        ? "本次检索未返回相关候选；不能据此排除材料风险。"
+        ? "暂无相似案例。"
         : "本次未触发类案检索。请结合逐句结论与复核提示查看。"
   )}</div>`;
 }
@@ -503,6 +519,7 @@ function exportRiskReport() {
     return `<section class="finding"><h3>${String(index + 1).padStart(2, "0")} · ${escapeHtml(item.risk_level_name)} <small>风险程度分 ${formatScore(item.risk_score)} / 1</small></h3>
       <p class="original">${escapeHtml(item.text)}</p>
       <p>判断理由：${escapeHtml(item.reasoning)}</p>
+      ${(item.remediation_suggestions || []).length ? `<p>修改建议：${item.remediation_suggestions.map(escapeHtml).join("；")}</p>` : ""}
       <p>标签：${escapeHtml(item.risk_labels.join("、") || "未标注")} · ${item.llm_reviewed ? (item.review_status === "needs_review" ? "语义已复核 · 上下文待补" : "语义已复核") : item.review_status === "needs_review" ? "语义仍待复核" : "本地规则判断"}</p>
       <p>说话人：${escapeHtml(roleLabels[context?.speaker_role] || "未标记")} · 立场：${escapeHtml(stanceLabels[context?.stance] || "待核对")}</p>
       <div class="context">${sources}</div>
@@ -511,11 +528,11 @@ function exportRiskReport() {
       <p>类案候选：${escapeHtml(item.matched_cases.map(c => c.case_id).join("、") || "无")}</p></section>`;
   }).join("");
   const cases = summary.top_matched_cases.map((item, index) => `
-    <tr><td>${index + 1}</td><td>${escapeHtml(item.case_id)}</td><td>${escapeHtml(item.party_name || item.case_title || "—")}</td><td>${escapeHtml(item.matched_risk_tags.join("、") || item.risk_tags.join("、"))}</td><td>${formatScore(item.score)}</td><td>${escapeHtml(item.match_reason || "检索候选，事实与条件待核验")}</td></tr>
+    <tr><td>${index + 1}</td><td>${escapeHtml(item.case_id)}<br>${escapeHtml(item.penalty_doc_no || "")}</td><td>${escapeHtml(item.party_name || item.case_title || "—")}</td><td>${escapeHtml(item.matched_risk_tags.join("、") || item.risk_tags.join("、"))}</td><td>${formatScore(item.score)}</td><td>${escapeHtml(item.match_reason || "相似事实匹配")}<p>${escapeHtml(item.penalty_content || "")}</p><small>${escapeHtml(item.regulator || "")}</small></td><td>${escapeHtml(item.file_id || item.matched_source)}<p>${escapeHtml(item.matched_text.slice(0,280))}</p><small>${(item.source_spans || []).map(s=>`${s.start}–${s.end}`).join("，")}</small></td></tr>
   `).join("");
   const retrievalNote = result.risk_assessments.some(item => item.retrieval_status === "unavailable")
     ? "部分类案检索暂不可用，请查看逐句状态。"
-    : summary.retrieval_sentence_count ? "本次检索未返回相关候选；不能据此排除材料风险。"
+    : summary.retrieval_sentence_count ? "暂无相似案例。"
       : "本次未触发类案检索。请结合逐句结论与复核提示查看。";
   const warnings = summary.warnings.map(warning => `<p>${escapeHtml(warning)}</p>`).join("");
   const runs = summary.agent_runs || [];
@@ -528,9 +545,9 @@ function exportRiskReport() {
     ${warnings ? `<div class="warning"><strong>复核提示</strong>${warnings}</div>` : ""}
     <h2>原始材料</h2><div class="source">${escapeHtml(result.source_text)}</div>
     <h2>逐句判断与上下文</h2>${findings}
-    <h2>相关处罚案例</h2><p class="muted">以下为检索候选，事实可比性与适用条件仍需核验。排序分是内部检索分，不代表违法概率或案例可靠率。</p>
-    <table><thead><tr><th>#</th><th>案例编号</th><th>主体 / 标题</th><th>共同标签</th><th>排序分</th><th>召回依据</th></tr></thead><tbody>${cases || `<tr><td colspan="6">${escapeHtml(retrievalNote)}</td></tr>`}</tbody></table>
-    <p class="foot">Query ID：${escapeHtml(result.query_id)} · SHA-256：${escapeHtml(result.extraction.checksum_sha256)} · Schema：${escapeHtml(result.schema_version)}。本报告为辅助审查结果，最终结论以人工复核为准。</p></body></html>`;
+    <h2>相关处罚案例</h2>
+    <table><thead><tr><th>#</th><th>案例 / 文号</th><th>主体</th><th>共同标签</th><th>排序分</th><th>匹配理由与处罚</th><th>来源与原文摘录</th></tr></thead><tbody>${cases || `<tr><td colspan="7">${escapeHtml(retrievalNote)}</td></tr>`}</tbody></table>
+    <p class="foot">Query ID：${escapeHtml(result.query_id)} · SHA-256：${escapeHtml(result.extraction.checksum_sha256)} · Schema：${escapeHtml(result.schema_version)}</p></body></html>`;
   downloadText(`FinRisk审查报告-${result.query_id}.html`, html, "text/html;charset=utf-8");
   toast("审查报告已导出，可用浏览器打印为 PDF");
 }
@@ -545,6 +562,45 @@ function downloadText(filename, content, mediaType) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+async function loadEvaluation() {
+  const target = el("#evaluation-content");
+  try {
+    const data = await api("/api/evaluation");
+    if (!data.available) { target.innerHTML = '<div class="inline-empty">评测正在运行，完成后展示结果。</div>'; return; }
+    const selected = data.risk[data.selected_mode];
+    const retrieval = data.retrieval[data.selected_mode.split("_")[0]];
+    const pct = value => `${(value * 100).toFixed(1)}%`;
+    const names = {none: "多路融合", cloud: "Qwen 重排", deepseek: "DeepSeek 重排"};
+    const modeName = key => data.risk_names?.[key] || (key === "rules_only" ? "本地规则与轻量模型" : `${names[key.split("_")[0]]} · ${{post:"Post",pre:"Pre",adaptive:"自适应融合"}[key.split("_")[1]]}`);
+    target.innerHTML = `<div class="summary-grid">
+      <article class="summary-card"><span>风险分类准确率</span><strong>${pct(selected.risk_binary_accuracy)}</strong><small>200条测试Query</small></article>
+      <article class="summary-card"><span>风险标签 Micro-F1</span><strong>${pct(selected.label_micro_f1)}</strong><small>固定27类标签</small></article>
+      <article class="summary-card"><span>类案命中率 @5</span><strong>${pct(retrieval.hit5)}</strong><small>前5条至少一个相关案例</small></article>
+      <article class="summary-card"><span>中位耗时</span><strong>${selected.median_seconds.toFixed(2)}s</strong><small>${escapeHtml(modeName(data.selected_mode))}</small></article></div>
+      <h3>风险审查对照</h3><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>配置</th><th>风险准确率</th><th>三态准确率</th><th>标签F1</th><th>场景准确率</th><th>待复核句</th><th>中位耗时</th></tr></thead><tbody>${Object.entries(data.risk).map(([key,v])=>`<tr><td>${escapeHtml(modeName(key))}${key===data.selected_mode?" · 推荐":""}</td><td>${pct(v.risk_binary_accuracy)}</td><td>${pct(v.state_accuracy)}</td><td>${pct(v.label_micro_f1)}</td><td>${pct(v.scene_accuracy)}</td><td>${v.missing_model_targets}</td><td>${v.median_seconds.toFixed(2)}s</td></tr>`).join("")}</tbody></table></div>
+      <h3>500案例检索对照</h3><p class="muted">模型辅助银标；${retrieval.positive_queries}/${retrieval.judged_queries}条Query有强相关案例。Hit表示至少命中一条，Recall表示相关集合覆盖率。${escapeHtml(data.retrieval_measurement_note || "")}</p><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>排序</th><th>命中率@5</th><th>Recall@10</th><th>MRR@20</th><th>NDCG@10</th></tr></thead><tbody>${Object.entries(data.retrieval).map(([key,v])=>`<tr><td>${names[key]}</td><td>${pct(v.hit5)}</td><td>${pct(v.recall_at_10)}</td><td>${v.mrr.toFixed(3)}</td><td>${v.ndcg_at_10.toFixed(3)}</td></tr>`).join("")}</tbody></table></div>${renderLongtextEvaluation(data)}`;
+  } catch (error) { target.innerHTML = `<div class="inline-empty error">${escapeHtml(error.message)}</div>`; }
+}
+
+function renderLongtextEvaluation(data) {
+  if (!data.longtext) return "";
+  const rows = ["baseline", "cascade"].flatMap(version =>
+    Object.entries(data.longtext[version].results[data.selected_mode]).map(([length, value]) =>
+      `<tr><td>${version === "baseline" ? "逐句完整复核" : "全文初筛＋详细核查"}</td><td>${Number(length).toLocaleString("zh-CN")}字</td><td>${value.median_seconds.toFixed(2)}s</td><td>${value.p95_seconds.toFixed(2)}s</td><td>${value.risk_queries_detected}/${value.queries}</td></tr>`)
+  ).join("");
+  return `<h3>长文本速度对照</h3><p class="muted">12条合成长文，风险分布在首、中、尾；与200条效果测试分开。</p><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>路径</th><th>字数档</th><th>中位耗时</th><th>P95</th><th>检出风险Query</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function exportSubmission() {
+  const result = state.riskResult;
+  if (!result) return;
+  const payload = { question_id: result.query_id,
+    risk_type: result.risk_summary.risk_labels.join("；"),
+    retrieved_cases: result.risk_summary.top_matched_cases.map((c, i) => ({case_id: c.case_id, rank: i + 1, reason: c.match_reason})),
+    suggestion: [...new Set(result.risk_assessments.flatMap(a => a.remediation_suggestions || []))].join("；") };
+  downloadText("submission.jsonl", JSON.stringify(payload) + "\n", "application/x-ndjson;charset=utf-8");
 }
 
 async function ingestCase() {
@@ -576,7 +632,7 @@ function renderIngestionResult(result) {
     <div class="success-mark">✓</div>
     <div class="ingestion-copy">
       <p class="kicker">INGESTION COMPLETE</p>
-      <h2>${escapeHtml(record.case_title || record.case_id)}</h2>
+      <h2>${escapeHtml(record.case_title || record.case_id)}${(result.cases || []).length > 1 ? ` · ${result.cases.length}个主体` : ""}</h2>
       <p>${escapeHtml(record.violation_behavior || "案例已完成结构化录入。")}</p>
       <div class="tag-row">${record.risk_tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>
       <small>案例编号 ${escapeHtml(record.case_id)} · ${result.llm_used ? "DeepSeek 结构化" : "规则降级结构化"} · ${escapeHtml(result.extraction_method)}</small>
@@ -591,7 +647,7 @@ function renderIngestionResult(result) {
 async function loadStatistics() {
   try {
     const value = await api("/api/cases/statistics");
-    const items = [value.total_cases, value.active_cases, value.user_cases, value.risk_tag_count];
+    const items = [value.total_cases, value.active_cases, value.subject_case_count ?? value.total_cases, value.risk_tag_count];
     el("#case-stats").querySelectorAll("strong").forEach((node, index) => {
       node.textContent = items[index].toLocaleString("zh-CN");
     });
@@ -628,14 +684,14 @@ regulator: el("#case-regulator").value.trim(),
 
 function renderCaseList() {
   const result = state.caseResult;
-  el("#case-count-label").textContent = `共 ${result.total.toLocaleString("zh-CN")} 条 · 第 ${result.page} / ${Math.max(result.total_pages, 1)} 页`;
+  el("#case-count-label").textContent = `共 ${result.total.toLocaleString("zh-CN")} 份文书 · 第 ${result.page} / ${Math.max(result.total_pages, 1)} 页`;
   if (!result.items.length) {
     el("#case-list").innerHTML = '<div class="inline-empty">没有符合条件的案例。</div>';
   } else {
     el("#case-list").innerHTML = result.items.map((item) => `
       <article class="case-row ${item.retrieval_status === "inactive" ? "is-inactive" : ""}">
         <button class="case-main" type="button" data-open-case="${escapeHtml(item.case_id)}">
-          <span class="case-id">${escapeHtml(item.case_id)}</span>
+          <span class="case-id">${escapeHtml(item.document_id || item.case_id)}<small>${item.case_origin === "source_document_only" ? "主体尚未归属" : `${item.subject_case_count || 1} 个主体案例`}</small></span>
           <span class="case-title">${escapeHtml(item.case_title || item.penalty_doc_no || "未命名案例")}</span>
           <span class="case-fact">${escapeHtml(item.violation_behavior || "暂无违法事实摘要")}</span>
           <span class="tag-row">${item.risk_tags.slice(0, 4).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span>
@@ -643,7 +699,7 @@ function renderCaseList() {
         <div class="case-meta">
           <span>${escapeHtml(item.regulator || "监管机构未记录")}</span>
           <span>${formatDate(item.penalty_date)}</span>
-          <span class="origin-chip">${item.is_user_managed ? "Web 新增" : "原批次"}</span>
+          <span class="origin-chip">${item.is_user_managed ? "Web 新增" : "新知识库"}</span>
           <span class="status-chip ${escapeHtml(item.retrieval_status)}">${item.retrieval_status === "active" ? "启用" : "已停用"}</span>
         </div>
       </article>
@@ -718,6 +774,8 @@ async function openCase(caseId) {
 }
 
 function renderCaseDetail(item) {
+  const fieldLabels = { party_name: "当事人", penalty_doc_no: "处罚文号", penalty_date: "处罚日期",
+    regulator: "监管机构", case_summary: "案例摘要", penalty_content: "处罚内容", behavior_period: "行为期间" };
   const evidence = item.evidence_chunks.slice(0, 12).map((chunk) => `
     <article><span>${escapeHtml(chunk.chunk_type)}${chunk.is_verbatim ? " · 原文" : ""}</span><p>${escapeHtml(chunk.chunk_text)}</p></article>
   `).join("");
@@ -731,12 +789,18 @@ function renderCaseDetail(item) {
       <div><dt>处罚文号</dt><dd>${escapeHtml(item.penalty_doc_no || "—")}</dd></div>
       <div><dt>处罚机关</dt><dd>${escapeHtml(item.regulator || "—")}</dd></div>
       <div><dt>处罚日期</dt><dd>${formatDate(item.penalty_date)}</dd></div>
-      <div><dt>数据来源</dt><dd>${item.is_user_managed ? "Web 增量录入" : "原批次构建"}</dd></div>
+      <div><dt>机构类型</dt><dd>${escapeHtml(item.institution_type || "—")}</dd></div>
+      <div><dt>发布日期</dt><dd>${formatDate(item.publish_date)}</dd></div>
+      <div><dt>数据来源</dt><dd>${item.is_user_managed ? "Web 增量录入" : "当前新知识库"}</dd></div>
       <div><dt>检索状态</dt><dd>${item.retrieval_status === "active" ? "启用" : "已停用"}</dd></div>
     </dl>
     <section class="detail-section"><h3>违法事实</h3><p>${escapeHtml(item.violation_behavior || "—")}</p></section>
     <section class="detail-section"><h3>处罚内容</h3><p>${escapeHtml(item.penalty_content || "—")}</p></section>
     ${item.case_summary ? `<section class="detail-section"><h3>案例摘要</h3><p>${escapeHtml(item.case_summary)}</p></section>` : ""}
+    ${(item.entity_relations || []).length ? `<section class="detail-section"><h3>主体关联</h3>${item.entity_relations.map(r => `<p>${escapeHtml(r.source || "")} · ${escapeHtml(r.relation || "")} · ${escapeHtml(r.target || "")}</p>`).join("")}</section>` : ""}
+    ${Object.keys(item.field_quality || {}).length ? `<details class="detail-section"><summary>字段来源</summary>${Object.entries(item.field_quality).map(([field, quality]) => `<p>${escapeHtml(fieldLabels[field] || field)} · ${escapeHtml(quality)}</p>`).join("")}</details>` : ""}
+    ${item.raw_source_file ? `<section class="detail-section"><a class="quiet-button" href="/api/cases/${encodeURIComponent(item.case_id)}/source" target="_blank" rel="noopener">查看原始 PDF ↗</a></section>` : ""}
+    ${(item.related_cases || []).length ? `<section class="detail-section"><h3>同文书其他主体</h3>${item.related_cases.map(subject => `<article><button class="quiet-button" type="button" data-related-case="${escapeHtml(subject.case_id)}">${escapeHtml(subject.party_name || subject.case_title || subject.case_id)}</button><p>${escapeHtml(subject.violation_behavior)}</p></article>`).join("")}</section>` : ""}
     <section class="detail-section"><h3>证据切片 <small>${item.evidence_chunks.length}</small></h3><div class="evidence-list">${evidence || '<p class="muted">暂无证据切片。</p>'}</div></section>
     <div class="drawer-actions">
       <button class="${item.retrieval_status === "active" ? "danger-button" : "primary-button"}" id="toggle-case-status" type="button">
@@ -746,6 +810,9 @@ function renderCaseDetail(item) {
     </div>
   `;
   el("#toggle-case-status").addEventListener("click", () => toggleCaseStatus(item));
+  el("#case-detail").querySelectorAll("[data-related-case]").forEach(button => {
+    button.addEventListener("click", () => openCase(button.dataset.relatedCase));
+  });
 }
 
 async function toggleCaseStatus(item) {
@@ -841,9 +908,9 @@ function retrievalDescription(item) {
   const status = item.retrieval_status || (item.retrieval_performed
     ? item.matched_cases.length ? "candidates" : "no_sufficient_match" : "not_requested");
   if (status === "unavailable") return "类案检索暂不可用，请独立核对本句风险与原文。";
-  if (status === "not_requested") return "本句未触发类案检索，这不代表已确认合规。";
-  if (status === "no_sufficient_match") return "本次检索未返回相关候选，不能据此排除本句风险。";
-  return `本次返回 ${item.matched_cases.length} 条类案候选；共同事实、差异和适用条件仍需核验。`;
+  if (status === "not_requested") return "本句未触发类案检索。";
+  if (status === "no_sufficient_match") return "暂无相似案例。";
+  return `匹配 ${item.matched_cases.length} 条相关案例。`;
 }
 
 function renderSentenceContext(context) {

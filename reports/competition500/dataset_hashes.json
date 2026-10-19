@@ -1,0 +1,9 @@
+{
+  "cases.jsonl": "07bcd1bf7bb7d51963ab87e50e3ca01ba3be34c581b8f95c280c2757bb2e42a5",
+  "development.jsonl": "b44803c1378a0a9708f1260656ac55d7b1aff187cacca0e0a440c36c327d6573",
+  "validation.jsonl": "e2493fd58762864492f94dd732e0b43df70091e95f545496d98d29737c036db0",
+  "test.jsonl": "af6e34059a655ed16169b09357cda4e21e353cacac20bcf29e073f7eb3f18cfd",
+  "reference/labels.jsonl": "4a6233f08f9443252a7d0bc6614a3661e8beb13a4a0fbfed323a8fce80f5b63d",
+  "reference/qrels_development.jsonl": "9e3de8fa5cb3edbf9393522941bae816824febd3bf14678990c18e76a35a2799",
+  "reference/qrels_test.jsonl": "c5626c05dc42acb90d07ce01723eb6dfc29ff2cbf52b404b2db9652a5fc25e4f"
+}

@@ -1,15 +1,10 @@
-# 配置说明
+配置说明
 
-运行配置统一由 `src/settings.py` 和根目录 `.env` 管理；示例见 `.env.example`。不再保留未被
-代码加载的 YAML 占位配置，避免出现“文档有配置、运行时不生效”的双重来源。
+运行配置由src/settings.py及本地.env读取，模板为.env.example。
+FINRISK_RERANK_PROVIDER：none、cloud、deepseek；FINRISK_RETRIEVAL_TIMING：post、pre、adaptive。
+当前默认deepseek/adaptive，由新开发集综合选择冻结。三种排序和三种时机全部保留。
+FINRISK_LOCAL_CALIBRATION=true启用400开发Query训练的本地候选模型与示例。
+FINRISK_CASE_KB_ROOT指向新库finrisk_v2_1_20261018，不回退旧案例库。
 
-可覆盖项：
-
-- `FINRISK_CASE_KB_ROOT`：统一案例库根目录；
-- `FINRISK_RISK_KEYWORD_PATH`：风险词库 JSON；
-- `FINRISK_RAW_CASE_UPLOAD_DIR`：Web 新案例原文件目录；
-- `FINRISK_MAX_UPLOAD_SIZE_BYTES`：上传上限；
-- `FINRISK_LLM_*` / `DEEPSEEK_API_KEY`：大模型连接参数。
-
-文件抽取默认参数由 `ExtractionConfig` 定义。需要新增可外部调整的参数时，先实现真实加载
-和校验，再补示例；不要只添加未使用的配置文件。
+risk_domain_mapping.json供知识库重建，import_competition_kb.py复制到当前库；运行时读当前库字典。
+真实API密钥只放.env或环境变量，不写入输入、配置说明和报告。

@@ -1,12 +1,15 @@
 """FinRisk FastAPI 应用和本地 Web 工作台入口。"""
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from copy import copy
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
@@ -15,6 +18,7 @@ from pydantic import Field
 
 from application.analysis_service import QueryAnalysisService
 from application.case_service import CaseManagementService
+from application.evidence_service import KnowledgeEvidenceService
 from application.query_service import QueryProcessingService
 from application.retrieval_service import CaseRetrievalService, CaseSearchFilters
 from application.review_service import QueryReviewService
@@ -43,11 +47,18 @@ from storage.case_repository import CaseNotFoundError, CaseRepository, Duplicate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = PROJECT_ROOT / "src" / "web" / "static"
+_ANALYSIS_OPTIONS: dict[tuple[str, str], QueryAnalysisService] = {}
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     application.state.agent_start_error = None
+    application.state.retrieval_start_error = None
+    # Load the prebuilt local index before the first query, never encode the corpus here.
+    try:
+        await asyncio.to_thread(get_retrieval_service().warmup)
+    except (ValueError, RuntimeError, OSError) as error:
+        application.state.retrieval_start_error = str(error)
     client = get_llm_client()
     if client is not None:
         try:
@@ -55,11 +66,27 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         except LLMProviderError as error:
             application.state.agent_start_error = str(error)
     yield
+    for variant in _ANALYSIS_OPTIONS.values():
+        variant.risk_pipeline.retrieval_service.close()
+    _ANALYSIS_OPTIONS.clear()
     if get_llm_client.cache_info().currsize:
         client = get_llm_client()
         if client is not None:
             await client.aclose()
-    for factory in (get_analysis_service, get_query_service, get_case_service, get_llm_client):
+    if get_retrieval_service.cache_info().currsize:
+        get_retrieval_service().close()
+    for factory in (
+        get_analysis_service,
+        get_query_service,
+        get_case_service,
+        get_llm_client,
+        get_retrieval_service,
+        get_evidence_service,
+        get_repository,
+        get_rule_detector,
+        get_review_service,
+        get_settings,
+    ):
         factory.cache_clear()
 
 
@@ -75,6 +102,8 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 class TextQueryRequest(ContractModel):
     text: str = Field(min_length=1, max_length=1_000_000, description="待分析完整文本")
     scene: QueryScene | None = Field(default=None, description="用户指定场景；为空时自动识别")
+    rerank_provider: Literal["none", "cloud", "deepseek"] | None = None
+    retrieval_timing: Literal["post", "pre", "adaptive"] | None = None
 
 
 class ClassifierStatusResponse(ContractModel):
@@ -111,7 +140,15 @@ def get_rule_detector() -> RuleRiskDetector:
 
 @lru_cache(maxsize=1)
 def get_retrieval_service() -> CaseRetrievalService:
-    return CaseRetrievalService(get_repository())
+    return CaseRetrievalService(get_repository(), get_settings())
+
+
+@lru_cache(maxsize=1)
+def get_evidence_service() -> KnowledgeEvidenceService | None:
+    root = get_settings().case_kb_root
+    return (
+        KnowledgeEvidenceService(root) if (root / "evidence_registry.sqlite3").is_file() else None
+    )
 
 
 @lru_cache(maxsize=1)
@@ -131,6 +168,13 @@ def get_analysis_service() -> QueryAnalysisService:
         taxonomy_descriptions=load_taxonomy_descriptions(settings.risk_dictionary_path),
         risk_display_threshold=settings.risk_display_threshold,
         retrieval_threshold=settings.retrieval_risk_threshold,
+        retrieval_timing=settings.retrieval_timing,
+        semantic_context_gate=settings.semantic_context_gate,
+        retrieval_top_k=settings.retrieval_top_k,
+        llm_concurrency=settings.risk_llm_concurrency,
+        evidence_service=get_evidence_service(),
+        agent_retrieval_enabled=settings.agent_retrieval_enabled,
+        longtext_screening=settings.longtext_screening,
     )
     return QueryAnalysisService(query_service=get_query_service(), risk_pipeline=pipeline)
 
@@ -139,6 +183,38 @@ def get_analysis_service() -> QueryAnalysisService:
 def get_review_service() -> QueryReviewService:
     settings = get_settings()
     return QueryReviewService(settings.query_reviews_path, get_repository().risk_dictionary())
+
+
+def analysis_with_options(
+    service: QueryAnalysisService, rerank: str | None, timing: str | None
+) -> QueryAnalysisService:
+    if rerank is None and timing is None:
+        return service
+    settings = get_settings()
+    key = (rerank or settings.rerank_provider, timing or settings.retrieval_timing)
+    if key not in _ANALYSIS_OPTIONS:
+        pipeline = copy(service.risk_pipeline)
+        pipeline.retrieval_service = service.risk_pipeline.retrieval_service.with_reranker(key[0])
+        pipeline.adaptive = key[1] == "adaptive"
+        pipeline.retrieval_timing = "hybrid" if pipeline.adaptive else key[1]
+        _ANALYSIS_OPTIONS[key] = QueryAnalysisService(
+            query_service=service.query_service, risk_pipeline=pipeline
+        )
+    return _ANALYSIS_OPTIONS[key]
+
+
+@app.get("/api/evaluation")
+async def evaluation_summary() -> dict[str, object]:
+    path = PROJECT_ROOT / "reports/competition500/evaluation.json"
+    return json.loads(path.read_text("utf-8")) if path.is_file() else {"available": False}
+
+
+@app.get("/api/evaluation/report")
+async def evaluation_report() -> FileResponse:
+    path = PROJECT_ROOT / "reports/competition500/evaluation.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="评测尚未完成")
+    return FileResponse(path, filename="FinRisk_200Query_500案例_效果测试.json")
 
 
 @lru_cache(maxsize=1)
@@ -166,10 +242,13 @@ async def index_page() -> FileResponse:
 async def health(case_service: CaseDependency) -> dict[str, object]:
     statistics = case_service.statistics()
     llm_client = get_llm_client()
+    evidence_service = get_evidence_service()
     return {
         "status": "ok",
         "case_count": statistics.total_cases,
         "active_case_count": statistics.active_cases,
+        "subject_case_count": statistics.subject_case_count,
+        "case_listing_unit": statistics.listing_unit,
         "data_version": statistics.data_version,
         "latest_crawl_at": statistics.latest_crawl_at,
         "latest_penalty_date": statistics.latest_penalty_date,
@@ -187,7 +266,40 @@ async def health(case_service: CaseDependency) -> dict[str, object]:
             ),
         },
         "context_version": "sentence-context-1.0",
+        "retrieval": {
+            "configured_embedding": get_settings().embedding_provider,
+            "actual_vector_channel": get_retrieval_service().last_diagnostics.vector_channel,
+            "timing": get_settings().retrieval_timing,
+            "rerank_provider": get_settings().rerank_provider,
+            "index_ready": get_retrieval_service().ready,
+            "startup_warning": getattr(app.state, "retrieval_start_error", None),
+        },
+        "knowledge_versions": evidence_service.versions if evidence_service else {},
+        "knowledge_release": {
+            "upstream_revision": "7b065c2712592763ea1c420e00cd239c0fb047ed",
+            "article_count": len(evidence_service.articles),
+            "mechanism_count": len(evidence_service.p0.cards) if evidence_service.p0 else 0,
+            "full_projection": get_settings().full_corpus,
+        }
+        if evidence_service
+        else {},
+        "knowledge_review_status": "model_candidate_pending_human"
+        if get_evidence_service()
+        else "legacy",
     }
+
+
+@app.get("/api/knowledge/evidence/{identifier:path}")
+async def read_knowledge_evidence(
+    identifier: str, layer: str = Query(default="hit", pattern="^(hit|supplement|extended)$")
+) -> dict[str, object]:
+    service = get_evidence_service()
+    if service is None:
+        raise HTTPException(status_code=404, detail="当前库未安装证据登记表")
+    try:
+        return await asyncio.to_thread(service.read, identifier, layer)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @app.get("/api/query/classifier", response_model=ClassifierStatusResponse)
@@ -219,7 +331,8 @@ async def analyze_text_query(
     service: AnalysisDependency,
 ) -> QueryAnalysisResult:
     try:
-        return await service.process_text(
+        selected = analysis_with_options(service, payload.rerank_provider, payload.retrieval_timing)
+        return await selected.process_text(
             payload.text,
             metadata={"channel": "web"},
             scene=payload.scene,
@@ -234,13 +347,16 @@ async def analyze_file_query(
     file: Annotated[UploadFile, File(description="PDF、图片、TXT、Markdown 或 DOCX")],
     service: AnalysisDependency,
     scene: Annotated[QueryScene | None, Form()] = None,
+    rerank_provider: Annotated[Literal["none", "cloud", "deepseek"] | None, Form()] = None,
+    retrieval_timing: Annotated[Literal["post", "pre", "adaptive"] | None, Form()] = None,
 ) -> QueryAnalysisResult:
     safe_filename = _safe_filename(file.filename)
     try:
         with TemporaryDirectory(prefix="finrisk-query-") as temporary_directory:
             temporary_path = Path(temporary_directory) / safe_filename
             await _save_upload(file, temporary_path, get_settings().max_upload_size_bytes)
-            return await service.process_file(
+            selected = analysis_with_options(service, rerank_provider, retrieval_timing)
+            return await selected.process_file(
                 temporary_path,
                 source_uri=f"upload://{safe_filename}",
                 metadata={"upload_content_type": file.content_type or "application/octet-stream"},
@@ -296,6 +412,21 @@ async def get_case(case_id: str, service: CaseDependency) -> CaseDetail:
         return service.get_case(case_id)
     except CaseNotFoundError as error:
         raise HTTPException(status_code=404, detail="案例不存在") from error
+
+
+@app.get("/api/cases/{case_id}/source")
+async def case_source(case_id: str, service: CaseDependency) -> FileResponse:
+    try:
+        item = service.get_case(case_id)
+    except CaseNotFoundError as error:
+        raise HTTPException(status_code=404, detail="案例不存在") from error
+    root = (PROJECT_ROOT / "raw_pdfs").resolve()
+    path = (PROJECT_ROOT / (item.raw_source_file or "")).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(status_code=404, detail="暂无已绑定的原始PDF")
+    return FileResponse(
+        path, media_type="application/pdf", filename=path.name, content_disposition_type="inline"
+    )
 
 
 @app.post("/api/cases/upload", response_model=CaseIngestionResult, status_code=201)
@@ -363,7 +494,7 @@ async def search_cases(
         penalty_date_from=penalty_date_from,
         penalty_date_to=penalty_date_to,
     )
-    return service.search(q, top_k=top_k, filters=filters)
+    return await asyncio.to_thread(service.search, q, top_k=top_k, filters=filters)
 
 
 def _raise_query_error(error: Exception) -> None:

@@ -42,16 +42,32 @@ DEFAULT_CRAWL_DIR = PROJECT_ROOT / "data" / "raw" / "cases" / "crawl"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="NFRA 处罚案例采集 + 统一入库链增量更新")
-    parser.add_argument("--columns", type=int, nargs="*", default=[4113, 4114, 4115],
-                        help="NFRA 栏目（4113/4114/4115），默认三个全采")
-    parser.add_argument("--crawl-mode", choices=["incremental", "full"], default="incremental",
-                        help="incremental 撞整页已见即停；补历史页用 full")
+    parser.add_argument(
+        "--columns",
+        type=int,
+        nargs="*",
+        default=[4113, 4114, 4115],
+        help="NFRA 栏目（4113/4114/4115），默认三个全采",
+    )
+    parser.add_argument(
+        "--crawl-mode",
+        choices=["incremental", "full"],
+        default="incremental",
+        help="incremental 撞整页已见即停；补历史页用 full",
+    )
     parser.add_argument("--max-pages", type=int, default=0, help="每栏目最多翻页数（0=不限）")
     parser.add_argument("--delay", type=float, default=1.5, help="请求间隔秒数，不得低于 1.5")
-    parser.add_argument("--crawl-dir", type=Path, default=DEFAULT_CRAWL_DIR,
-                        help="采集暂存区（state.json/index.jsonl/拆分 txt）")
-    parser.add_argument("--include-all", action="store_true",
-                        help="不做保险相关筛选（默认只入含「保险」且当事人非银行的文书）")
+    parser.add_argument(
+        "--crawl-dir",
+        type=Path,
+        default=DEFAULT_CRAWL_DIR,
+        help="采集暂存区（state.json/index.jsonl/拆分 txt）",
+    )
+    parser.add_argument(
+        "--include-all",
+        action="store_true",
+        help="不做保险相关筛选（默认只入含「保险」且当事人非银行的文书）",
+    )
     parser.add_argument("--limit", type=int, default=0, help="本次最多入库几案（0=不限）")
     parser.add_argument("--dry-run", action="store_true", help="只采集 + 汇报，不入库不调模型")
     return parser.parse_args()
@@ -90,17 +106,31 @@ async def ingest_pending(
             continue
         case_id = outcome.case.case_id
         with ledger_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({
-                "sha1": item["sha1"], "case_id": case_id,
-                "txt_path": str(txt), "title": item["title"],
-                "source_url": item["source_url"],
-            }, ensure_ascii=False) + "\n")
-        results.append({
-            "txt": txt.name, "status": "ingested", "case_id": case_id,
-            "llm_used": outcome.llm_used, "warnings": outcome.warnings,
-        })
-        print(f"[入库] {case_id} <- {txt.name} "
-              f"(llm={outcome.llm_used}, 警告 {len(outcome.warnings)})")
+            handle.write(
+                json.dumps(
+                    {
+                        "sha1": item["sha1"],
+                        "case_id": case_id,
+                        "txt_path": str(txt),
+                        "title": item["title"],
+                        "source_url": item["source_url"],
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        results.append(
+            {
+                "txt": txt.name,
+                "status": "ingested",
+                "case_id": case_id,
+                "llm_used": outcome.llm_used,
+                "warnings": outcome.warnings,
+            }
+        )
+        print(
+            f"[入库] {case_id} <- {txt.name} (llm={outcome.llm_used}, 警告 {len(outcome.warnings)})"
+        )
     return results
 
 

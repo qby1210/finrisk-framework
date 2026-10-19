@@ -31,7 +31,8 @@ const FinRiskSource = (() => {
       if (start > cursor) parts.push({ text: slice(cursor, start) });
       const entry = {
         id, start, end, index, label: label(index), text: assessment.text,
-        level: assessment.risk_level, levelName: assessment.risk_level_name,
+        level: assessment.decision_state === "insufficient_information" ? "unknown" : assessment.risk_level,
+        levelName: assessment.risk_level_name,
         score: assessment.risk_score, needsReview: assessment.review_status === "needs_review",
         selected: selection?.sentenceId === id,
         cited: selection?.sourceSentenceId === id && selection.sentenceId !== id,

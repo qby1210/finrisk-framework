@@ -4,7 +4,6 @@ from llm.client import (
     LLMClient,
     LLMConfigurationError,
     LLMProviderError,
-    OpenAICompatibleLLMClient,
     PiAgentLLMClient,
     create_llm_client_from_env,
 )
@@ -17,7 +16,6 @@ __all__ = [
     "LLMClient",
     "LLMConfigurationError",
     "LLMProviderError",
-    "OpenAICompatibleLLMClient",
     "PiAgentLLMClient",
     "create_llm_client_from_env",
 ]

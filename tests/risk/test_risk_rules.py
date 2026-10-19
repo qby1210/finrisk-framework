@@ -45,13 +45,13 @@ def test_explicit_content_labels_detect_fabricated_yield_without_overlabeling() 
         "过去三年平均收益8.8%，未来也会保持同样区间。",
         "年度补贴默认当成产品收益。",
         "内部加息名额实际上并不存在。",
-        "复利滚存预计可达5.6%。",
         "5.6%由销售团队手工测算，并非产品历史结算利率。",
     )
 
     assert all(_explicit_content_labels(text) == ["虚构收益率"] for text in positives)
     assert _explicit_content_labels("合同载明保证利率2.5%，非保证利益可能波动。") == []
     assert _explicit_content_labels("历史结算利率为3.0%，不代表未来收益。") == []
+    assert _explicit_content_labels("复利滚存预计可达5.6%。") == []
 
 
 def test_training_channel_requires_noncompliant_guidance_evidence() -> None:

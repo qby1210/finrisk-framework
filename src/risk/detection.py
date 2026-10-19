@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from domain.query_models import QueryScene
 from domain.risk_models import RiskEvidence
 
 REGEX_LABEL_MAP: dict[str, tuple[str, ...]] = {
+    "unlicensed_premises": ("其他",),
     "absolute_guarantee": ("承诺收益", "保证收益", "绝对化表述", "销售误导"),
     "bank_comparison": ("不当比较", "销售误导"),
     "deposit_disguise": ("欺骗投保人", "销售误导", "隐瞒重要信息"),
@@ -41,6 +43,16 @@ REGEX_LABEL_MAP: dict[str, tuple[str, ...]] = {
 }
 
 _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
+    "unlicensed_premises": re.compile(
+        r"(?:职场|营业场所|营销服务部|分支机构).{0,40}(?:设立|设置|开设|运营|使用)"
+        r".{0,24}(?:未经|未获|未取得).{0,12}(?:监管部门批准|批准|设立许可)|"
+        r"(?:未经|未获).{0,10}(?:监管部门批准|批准).{0,12}(?:擅自)?"
+        r"(?:设立|开设|经营).{0,15}(?:职场|营业场所|营销服务部|分支机构)"
+    ),
+    "absolute_guarantee": re.compile(
+        r"(?:保证|承诺|确保|保底)[^，,。；;！？!?\n]{0,12}(?:收益|年化|回报|利息|分红)|"
+        r"稳赚不赔|保本保息|绝不亏损|零风险|肯定赔"
+    ),
     "false_expense": re.compile(
         r"(?:虚构|虚假|伪造).{0,10}(?:发票|会务费|宣传费|业务费|费用).{0,20}(?:列支|报销|套取|转入)|"
         r"(?:讲座|会议|活动).{0,16}(?:无|没有|未见).{0,8}(?:场地|会场|签到|预订).{0,8}(?:记录|凭证)|"
@@ -64,6 +76,7 @@ _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
         r"(?:会务|咨询|第三方).{0,6}公司.{0,20}(?:负责|承办).{0,24}(?:产品讲解|保险责任|投保流程|需求访谈)"
     ),
     "agent_mismanagement": re.compile(
+        r"保费.{0,12}(?:打|进|转入|收至).{0,10}(?:私人|个人).{0,6}(?:账户|卡)|"
         r"(?:代理人|营销员).{0,12}(?:管理不到位|失管|违规销售)|"
         r"(?:未对|未能).{0,12}(?:代理人|营销员).{0,8}(?:培训|管理|监督)|"
         r"(?:主管|负责人|管理员).{0,8}(?:账号|权限).{0,24}(?:代录|批量|修改|确认|操作)|"
@@ -161,6 +174,12 @@ _NONCOMPLIANT_COUNTER = re.compile(
     r"(?:不区分|不纠正|忽略|删除|伪造|虚构|冒充)|"
     r"先.{0,14}(?:投保|签名|签单|占名额|锁定额度|提交|确认).{0,18}(?:再|后)"
 )
+_CONTRAST_ASSERTION = re.compile(
+    r"(?:却|但是|但|仍然|仍|实际上).{0,35}?(?P<assertion>承诺|保证|肯定|一定|固定拿)"
+)
+_ASSERTION_NEGATION = re.compile(
+    r"(?:不|未|非|不是|不能|不得|严禁|禁止)(?:作出|宣称|使用|宣传|承诺|称|说|理解为)?[‘'\"“\s]*$"
+)
 _LABEL_HINTS: dict[str, re.Pattern[str]] = {
     "欺骗投保人": re.compile(r"骗|冒充|虚假|伪造|存单|储蓄"),
     "销售误导": re.compile(r"误导|存款|存单|稳赚|保本|无风险|不亏|隐瞒"),
@@ -256,8 +275,48 @@ class RuleRiskDetector:
         self._keywords = _parse_keyword_rules(payload.get("keywords"))
         self._patterns = _parse_patterns(payload.get("regex_patterns"))
         self._patterns.update(_STRONG_PATTERNS)
+        self.candidate_model = None
+        model_path = keyword_path.parent.parent / "calibration/competition500.npz"
+        if (
+            model_path.is_file()
+            and os.getenv("FINRISK_LOCAL_CALIBRATION", "true").lower() != "false"
+        ):
+            from risk.local_calibration import LocalRiskCalibration
+
+            self.candidate_model = LocalRiskCalibration(model_path)
 
     def detect(
+        self,
+        text: str,
+        scene: QueryScene | None = None,
+    ) -> RuleDetectionResult:
+        result = self._detect_rules(text, scene)
+        model = getattr(self, "candidate_model", None)
+        if model is None or result.safe_signal:
+            return result
+        risk, candidates = model.predict(text)
+        labels = [label for label, score in candidates if score >= 0.55]
+        extra = [label for label in labels if label not in result.risk_labels]
+        if risk < 0.7 or not extra:
+            return result
+        return RuleDetectionResult(
+            risk_score=max(result.risk_score, 0.38),
+            confidence=min(result.confidence, 0.65),
+            stage1_score=result.stage1_score,
+            stage2_score=max(result.stage2_score, 0.35),
+            risk_labels=tuple([*result.risk_labels, *extra]),
+            evidence=(
+                *result.evidence,
+                RiskEvidence(
+                    source="local_calibration",
+                    description="开发集训练的字词特征模型提示：" + "、".join(extra),
+                ),
+            ),
+            strong_signal=result.strong_signal,
+            safe_signal=False,
+        )
+
+    def _detect_rules(
         self,
         text: str,
         scene: QueryScene | None = None,
@@ -288,14 +347,19 @@ class RuleRiskDetector:
         stage1_strengths: list[float] = []
         stage2_strengths: list[float] = []
         evidence: list[RiskEvidence] = []
+        explicit_other = False
         for name, pattern in self._patterns.items():
-            match = pattern.search(normalized)
-            if match is None or _is_negated(normalized, match.start()):
+            match = next(
+                (m for m in pattern.finditer(normalized) if not _is_negated(normalized, m.start())),
+                None,
+            )
+            if match is None:
                 continue
             strength = 0.88 * _scene_factor(REGEX_LABEL_MAP.get(name, ()), scene)
+            explicit_other = explicit_other or name == "unlicensed_premises"
             stage1_strengths.append(min(0.96, strength))
             for label in REGEX_LABEL_MAP.get(name, ("其他",)):
-                if label != "其他":
+                if label != "其他" or name == "unlicensed_premises":
                     label_scores[label] = label_scores.get(label, 0.0) + strength
             evidence.append(
                 RiskEvidence(
@@ -306,8 +370,15 @@ class RuleRiskDetector:
 
         seen_keywords: set[str] = set()
         for rule in self._keywords:
-            position = normalized.find(rule.keyword)
-            if position < 0 or rule.keyword in seen_keywords or _is_negated(normalized, position):
+            position = next(
+                (
+                    m.start()
+                    for m in re.finditer(re.escape(rule.keyword), normalized)
+                    if not _is_negated(normalized, m.start())
+                ),
+                -1,
+            )
+            if position < 0 or rule.keyword in seen_keywords:
                 continue
             seen_keywords.add(rule.keyword)
             base = (
@@ -341,7 +412,7 @@ class RuleRiskDetector:
         labels = tuple(
             label
             for label, _ in sorted(label_scores.items(), key=lambda item: (-item[1], item[0]))
-            if label != "其他"
+            if label != "其他" or explicit_other
         )[:8]
         strong_signal = bool(stage1_strengths) or (
             stage2_score >= 0.68 and len(stage2_strengths) >= 3
@@ -363,9 +434,15 @@ def is_explicit_compliance_statement(text: str) -> bool:
     """识别规范性禁止、正向披露和合同限定，避免把“不得违规”当作违规事实。"""
 
     normalized = unicodedata.normalize("NFKC", text).casefold()
-    return bool(_COMPLIANCE_DIRECTIVE.search(normalized)) and not bool(
-        _NONCOMPLIANT_COUNTER.search(normalized)
+    for match in _CONTRAST_ASSERTION.finditer(normalized):
+        start = match.start("assertion")
+        if not _ASSERTION_NEGATION.search(normalized[max(0, start - 14) : start]):
+            return False  # A disclaimer cannot suppress a separate affirmative promise.
+    directive = _COMPLIANCE_DIRECTIVE.search(normalized) or re.search(
+        r"(?:不得使用|禁止使用|严禁使用|不做|不使用)[^。；\n]{0,65}(?:什么都保|肯定赔|稳赚|保本|保证|承诺|返佣|代签)",
+        normalized,
     )
+    return bool(directive) and not bool(_NONCOMPLIANT_COUNTER.search(normalized))
 
 
 def _confidence(
@@ -394,7 +471,17 @@ def _scene_factor(labels: tuple[str, ...] | list[str], scene: QueryScene | None)
 
 def _is_negated(text: str, start: int) -> bool:
     prefix = text[max(0, start - 8) : start].rstrip()
-    return _NEGATION_PREFIX.search(prefix) is not None
+    if _NEGATION_PREFIX.search(prefix) is not None:
+        return True
+    clause = re.split(r"[，,。；;！？!?\n]", text[max(0, start - 70) : start])[-1]
+    clause = re.split(r"但是|但|却|仍然|实际", clause)[-1]
+    return (
+        re.search(
+            r"(?:不得|严禁|禁止|不可|不允许|不能|不做|不使用|不应)[^，,。；;！？!?\n]{0,60}$",
+            clause,
+        )
+        is not None
+    )
 
 
 def _noisy_or(strengths: list[float]) -> float:

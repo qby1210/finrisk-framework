@@ -37,10 +37,12 @@ $includePaths = @(
     "verify.sh",
     "configs",
     "agent_runtime",
-    "data",
+    "data/eval",
+    "data/risk",
+    "data/runtime_knowledge",
     "deploy",
     "docs",
-    "outputs",
+    "reports",
     "scripts",
     "src",
     "tests"
@@ -57,6 +59,9 @@ $excludedDirectories = @(
     "release",
     "node_modules",
     ".cache",
+    "cache",
+    "runtime",
+    "project_cleanup_20261018",
     ".tmp",
     "local-preview"
 )
@@ -82,7 +87,7 @@ foreach ($relativePath in $includePaths) {
                 break
             }
         }
-        if ($hasExcludedDirectory -or $_.Name -eq ".env" -or $_.Extension -in @(".pyc", ".pyo")) {
+        if ($hasExcludedDirectory -or $_.Name -eq ".env" -or $_.Extension -in @(".pyc", ".pyo", ".log", ".zip")) {
             return
         }
 

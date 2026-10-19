@@ -124,6 +124,7 @@ def test_user_scene_override_skips_rule_and_llm() -> None:
     assert result.confidence == 1.0
     assert fake_llm.call_count == 0
 
+
 def test_sentence_split_preserves_text_and_offsets() -> None:
     """切句后应能用偏移从原文精确还原每句话。"""
 

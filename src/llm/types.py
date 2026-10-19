@@ -24,6 +24,7 @@ class JsonChatRequest(ContractModel):
     extra_body: dict[str, object] = Field(default_factory=dict)
     task: str = "json_review"
     review_context: dict[str, object] = Field(default_factory=dict)
+    available_tools: list[str] = Field(default_factory=list)
 
 
 class JsonChatResponse(ContractModel):

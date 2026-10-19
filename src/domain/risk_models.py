@@ -31,6 +31,20 @@ class RiskEvidence(ContractModel):
     document_end_offset: int | None = Field(default=None, ge=1)
 
 
+class MechanismDecision(ContractModel):
+    """Independent current-input decision; a missing fact cannot erase another risk."""
+
+    mechanism_id: str = Field(pattern=r"^M(?:0[1-9]|1[0-2])$")
+    decision_state: Literal["risk", "no_clear_risk", "insufficient_information"]
+    risk_labels: list[str] = Field(default_factory=list, max_length=27)
+    candidate_labels: list[str] = Field(default_factory=list, max_length=27)
+    evidence: list[str] = Field(default_factory=list, max_length=5)
+    missing_facts: list[str] = Field(default_factory=list, max_length=8)
+    reasoning: str = ""
+    condition_assessments: list[dict[str, object]] = Field(default_factory=list)
+    decision_origin: Literal["model", "deterministic_guard"] = "model"
+
+
 class SentenceRiskAssessment(ContractModel):
     """与 RiskQuerySentence 通过 sentence_id 一一对应的判断结果。"""
 
@@ -47,6 +61,7 @@ class SentenceRiskAssessment(ContractModel):
     local_score: float = Field(default=0.0, ge=0, le=1)
     local_confidence: float = Field(default=0.0, ge=0, le=1)
     llm_reviewed: bool = False
+    review_depth: Literal["rule", "screen", "detail"] = "rule"
     retrieval_performed: bool = False
     evidence: list[RiskEvidence] = Field(default_factory=list)
     matched_cases: list[MatchedCase] = Field(default_factory=list)
@@ -56,6 +71,14 @@ class SentenceRiskAssessment(ContractModel):
         "not_requested", "candidates", "no_sufficient_match", "unavailable"
     ] = "not_requested"
     retrieval_query: str | None = None
+    decision_state: Literal["risk", "no_clear_risk", "insufficient_information"] = "no_clear_risk"
+    candidate_labels: list[str] = Field(default_factory=list)
+    missing_facts: list[str] = Field(default_factory=list)
+    condition_assessments: list[dict[str, object]] = Field(default_factory=list)
+    mechanism_assessments: list[MechanismDecision] = Field(default_factory=list)
+    label_assessments: list[dict[str, object]] = Field(default_factory=list)
+    checked_mechanism_ids: list[str] = Field(default_factory=list)
+    remediation_suggestions: list[str] = Field(default_factory=list)
 
 
 class RiskLabelFinding(ContractModel):
@@ -91,6 +114,11 @@ class QueryRiskSummary(ContractModel):
     warnings: list[str] = Field(default_factory=list)
     stage_timings_ms: dict[str, float] = Field(default_factory=dict)
     agent_runs: list[AgentExecutionTrace] = Field(default_factory=list)
+    decision_state: Literal["risk", "no_clear_risk", "insufficient_information"] = "no_clear_risk"
+    missing_facts: list[str] = Field(default_factory=list)
+    evidence_tool_events: list[dict[str, object]] = Field(default_factory=list)
+    mechanism_coverage: dict[str, object] = Field(default_factory=dict)
+    retrieval_strategy: str = "post"
 
 
 class QueryAnalysisResult(QueryProcessingResult):
@@ -120,8 +148,12 @@ class QueryAnalysisResult(QueryProcessingResult):
                 start, end = evidence.document_start_offset, evidence.document_end_offset
                 if start is None and end is None:
                     continue
-                if start is None or end is None or not (
-                    mapping.document_start_offset <= start < end <= mapping.document_end_offset
+                if (
+                    start is None
+                    or end is None
+                    or not (
+                        mapping.document_start_offset <= start < end <= mapping.document_end_offset
+                    )
                 ):
                     raise ValueError("判断依据的原文偏移必须落在引用句内")
         return self

@@ -14,24 +14,36 @@ from query.enhancement import prepare_query, split_sentences
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("培训要求：不得使用“保证收益。稳赚不赔！”这样的说法。请如实披露。",
-         ["培训要求：不得使用“保证收益。稳赚不赔！”这样的说法。", "请如实披露。"]),
+        (
+            "培训要求：不得使用“保证收益。稳赚不赔！”这样的说法。请如实披露。",
+            ["培训要求：不得使用“保证收益。稳赚不赔！”这样的说法。", "请如实披露。"],
+        ),
         ('"保本。保证8%。"属于禁止话术。', ['"保本。保证8%。"属于禁止话术。']),
-        ("不得使用“客户：保本吗 顾问：是的。”这样的说法。",
-         ["不得使用“客户：保本吗 顾问：是的。”这样的说法。"]),
-        ("说明（非保证利益；可能为零）以合同为准。下一项。",
-         ["说明（非保证利益；可能为零）以合同为准。", "下一项。"]),
-        ("说明：“禁止使用‘保本。’的说法。”\n顾问：好的。",
-         ["说明：“禁止使用‘保本。’的说法。”", "顾问：好的。"]),
+        (
+            "不得使用“客户：保本吗 顾问：是的。”这样的说法。",
+            ["不得使用“客户：保本吗 顾问：是的。”这样的说法。"],
+        ),
+        (
+            "说明（非保证利益；可能为零）以合同为准。下一项。",
+            ["说明（非保证利益；可能为零）以合同为准。", "下一项。"],
+        ),
+        (
+            "说明：“禁止使用‘保本。’的说法。”\n顾问：好的。",
+            ["说明：“禁止使用‘保本。’的说法。”", "顾问：好的。"],
+        ),
         ("客户：是否保本 顾问：不能保证", ["客户：是否保本", "顾问：不能保证"]),
         ("客户：是否保本，顾问：不能保证。", ["客户：是否保本，", "顾问：不能保证。"]),
         ("消费者：收益如何\n代理人：不能保证", ["消费者：收益如何", "代理人：不能保证"]),
         ("q: 是否保证收益\na: 不能保证", ["q: 是否保证收益", "a: 不能保证"]),
-        ("1. 演示收益3.5%。\n2. 网址 https://example.com/terms 以合同为准。",
-         ["1. 演示收益3.5%。", "2. 网址 https://example.com/terms 以合同为准。"]),
+        (
+            "1. 演示收益3.5%。\n2. 网址 https://example.com/terms 以合同为准。",
+            ["1. 演示收益3.5%。", "2. 网址 https://example.com/terms 以合同为准。"],
+        ),
         ("客户：“是否保本？”\n顾问：“不保证。”", ["客户：“是否保本？”", "顾问：“不保证。”"]),
-        ("非保证利益的实际金额\r\n以公司经营状况为准。",
-         ["非保证利益的实际金额\r\n以公司经营状况为准。"]),
+        (
+            "非保证利益的实际金额\r\n以公司经营状况为准。",
+            ["非保证利益的实际金额\r\n以公司经营状况为准。"],
+        ),
         ("  📢 原句。\r\n\r\n👉 另一句𠀀。  ", ["📢 原句。", "👉 另一句𠀀。"]),
     ],
 )
@@ -40,18 +52,22 @@ def test_complete_expression_boundaries_and_exact_offsets(text: str, expected: l
     assert [span.text for span in spans] == expected
     cursor = 0
     for span in spans:
-        assert not text[cursor:span.start_offset].strip()
-        assert text[span.start_offset:span.end_offset] == span.text
+        assert not text[cursor : span.start_offset].strip()
+        assert text[span.start_offset : span.end_offset] == span.text
         cursor = span.end_offset
     assert not text[cursor:].strip()
 
 
 def _prepare() -> QueryProcessingResult:
     text = "  📢 客户：是否保证收益？\n代理人：不能保证。  "
-    return asyncio.run(prepare_query(
-        text, QuerySceneClassifier(None), input_type=QueryInputType.TEXT,
-        scene_override=QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
-    ))
+    return asyncio.run(
+        prepare_query(
+            text,
+            QuerySceneClassifier(None),
+            input_type=QueryInputType.TEXT,
+            scene_override=QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+        )
+    )
 
 
 def test_emoji_role_prefix_and_code_point_offset_contract() -> None:
