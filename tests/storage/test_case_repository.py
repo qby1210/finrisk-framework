@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -91,6 +93,47 @@ def test_repository_reads_and_retrieves_existing_case(tmp_path: Path) -> None:
     assert service.search("保证收益百分之十", top_k=3, risk_tags={"赠送利益"}) == []
 
 
+def test_batch_sources_keep_each_documents_own_literal_evidence(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = CaseRepository(settings)
+    artifacts = []
+    texts = {"F_A": "甲公司给予合同外利益。", "F_B": "乙公司虚列费用。"}
+    for fid, text in texts.items():
+        artifacts.append(
+            (
+                {"case_id": fid, "file_id": fid, "violation_behavior": text},
+                [{"chunk_id": fid + "_fact", "chunk_type": "fact", "chunk_text": text}],
+                [],
+            )
+        )
+    repository.add_cases(artifacts, source_texts=texts, origin="official_crawl")
+    with sqlite3.connect(
+        settings.source_root("official_crawl") / "evidence_registry.sqlite3"
+    ) as db:
+        for fid, text in texts.items():
+            assert (
+                db.execute("SELECT text FROM sources WHERE file_id=?", (fid,)).fetchone()[0] == text
+            )
+            unit = json.loads(
+                db.execute("SELECT data FROM units WHERE file_id=?", (fid,)).fetchone()[0]
+            )
+            assert unit["source_text"] == text
+            assert unit["source_spans"] == [{"start": 0, "end": len(text)}]
+
+
+def test_batch_missing_source_rolls_back_whole_write(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = CaseRepository(settings)
+    with pytest.raises(KeyError):
+        repository.add_cases(
+            [({"case_id": "new", "file_id": "missing"}, [], [])],
+            source_texts={},
+            origin="official_crawl",
+        )
+    assert CaseRepository(settings).statistics().total_cases == 1
+    assert not (settings.source_root("official_crawl") / ".pending_write.json").exists()
+
+
 def test_retrieval_and_repository_support_combined_metadata_filters(tmp_path: Path) -> None:
     repository = CaseRepository(_settings(tmp_path))
     service = CaseRetrievalService(repository)
@@ -128,7 +171,7 @@ def test_retrieval_and_repository_support_combined_metadata_filters(tmp_path: Pa
     assert page.items[0].institution_type == "保险公司分支机构"
 
 
-def test_incremental_case_joins_same_files_and_can_be_deactivated(tmp_path: Path) -> None:
+def test_incremental_case_is_separate_and_can_be_deactivated(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     repository = CaseRepository(settings)
     record = {
@@ -164,12 +207,196 @@ def test_incremental_case_joins_same_files_and_can_be_deactivated(tmp_path: Path
 
     assert repository.statistics().total_cases == 2
     assert repository.statistics().user_cases == 1
-    assert sum(1 for _ in settings.cases_path.open(encoding="utf-8")) == 2
-    assert sum(1 for _ in settings.chunks_path.open(encoding="utf-8")) == 2
-    assert sum(1 for _ in settings.expansions_path.open(encoding="utf-8")) == 1
+    assert sum(1 for _ in settings.cases_path.open(encoding="utf-8")) == 1
+    assert sum(1 for _ in settings.chunks_path.open(encoding="utf-8")) == 1
+    assert sum(1 for _ in settings.expansions_path.open(encoding="utf-8")) == 0
+    root = settings.source_root("web_ingestion")
+    assert len((root / "cases.jsonl").read_text("utf-8").splitlines()) == 1
+    assert CaseRepository(settings).get_case("U002").source_group == "web_ingestion"
     assert repository.set_retrieval_status("U002", active=False).retrieval_status == "inactive"
     assert all(
         "U002" not in document.case_ids for document in repository.iter_retrieval_documents()
     )
     with pytest.raises(DuplicateCaseError):
         repository.add_case(record, chunks, expansions)
+
+
+def test_three_source_partitions_are_combined_without_changing_originals(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    originals = {
+        p: p.read_bytes()
+        for p in (
+            settings.cases_path,
+            settings.chunks_path,
+            settings.expansions_path,
+            settings.manifest_path,
+        )
+    }
+    repository = CaseRepository(settings)
+    stale = CaseRepository(settings)
+    for cid, origin in (("N001", "official_crawl"), ("W001", "web_ingestion")):
+        text = f"{cid}保险销售欺骗投保人"
+        record = {
+            "case_id": cid,
+            "file_id": f"F_{cid}",
+            "case_origin": origin,
+            "violation_behavior": text,
+            "retrieval_status": "active",
+            "risk_tags": ["销售误导"],
+        }
+        chunks = [
+            {
+                "chunk_id": f"{cid}_fact",
+                "case_id": cid,
+                "chunk_type": "fact",
+                "chunk_text": text,
+                "is_verbatim": True,
+            }
+        ]
+        stale.add_cases([(record, chunks, [])], source_text=text, origin=origin)
+    repository.reload()
+    stats = repository.statistics()
+    assert (stats.total_cases, stats.base_cases, stats.crawled_cases, stats.user_cases) == (
+        3,
+        1,
+        1,
+        1,
+    )
+    for origin, cid in (
+        ("original", "C001"),
+        ("official_crawl", "N001"),
+        ("web_ingestion", "W001"),
+    ):
+        assert repository.list_cases(origin=origin).items[0].case_id == cid
+    assert {c for doc in repository.iter_retrieval_documents() for c in doc.case_ids} == {
+        "C001",
+        "N001",
+        "W001",
+    }
+    repository.set_retrieval_status("N001", active=False)
+    assert CaseRepository(settings).get_case("N001").retrieval_status == "inactive"
+    repository.set_retrieval_status("C001", active=False)
+    assert CaseRepository(settings).get_case("C001").retrieval_status == "inactive"
+    assert all(path.read_bytes() == data for path, data in originals.items())
+    for origin in ("official_crawl", "web_ingestion"):
+        root = settings.source_root(origin)
+        assert (root / "manifest.json").is_file()
+        with sqlite3.connect(root / "evidence_registry.sqlite3") as connection:
+            assert connection.execute("SELECT COUNT(*) FROM units").fetchone()[0] == 1
+
+
+def test_readers_notice_a_different_process_partition_commit(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    reader, writer = CaseRepository(settings), CaseRepository(settings)
+    reader.statistics()
+    writer.add_case(
+        {"case_id": "new", "case_origin": "official_crawl", "violation_behavior": "销售误导"},
+        [],
+        [],
+    )
+    reader._last_check = 0
+    assert reader.statistics().crawled_cases == 1
+
+
+def test_cross_source_content_and_document_party_dedup(tmp_path: Path) -> None:
+    repository = CaseRepository(_settings(tmp_path))
+    record = {
+        "case_id": "official1",
+        "case_origin": "official_crawl",
+        "violation_behavior": "欺骗投保人",
+        "penalty_doc_no": "金罚〔2026〕1号",
+        "party_name": "甲保险公司",
+        "source_content_sha256": "abc",
+    }
+    repository.add_case(record, [], [])
+    with pytest.raises(DuplicateCaseError):
+        repository.add_case(
+            {**record, "case_id": "upload1", "case_origin": "web_ingestion"}, [], []
+        )
+    with pytest.raises(DuplicateCaseError):
+        repository.add_case(
+            {**record, "case_id": "upload2", "source_content_sha256": "changed-format"}, [], []
+        )
+    assert repository.statistics().total_cases == 2
+
+
+def test_evidence_reader_federates_original_and_new_sources(tmp_path: Path) -> None:
+    from application.evidence_service import KnowledgeEvidenceService
+
+    settings = _settings(tmp_path)
+    text = "原始保险处罚事实"
+    original_db = settings.case_kb_root / "evidence_registry.sqlite3"
+    with sqlite3.connect(original_db) as connection:
+        connection.executescript(
+            "CREATE TABLE sources(file_id TEXT,text TEXT,sha256 TEXT);"
+            "CREATE TABLE units(id TEXT,file_id TEXT,data TEXT);"
+            "CREATE TABLE evidence(id TEXT,file_id TEXT,data TEXT);"
+        )
+        connection.execute(
+            "INSERT INTO sources VALUES (?,?,?)", ("old", text, sha256(text.encode()).hexdigest())
+        )
+    repository = CaseRepository(settings)
+    repository.add_cases(
+        [
+            (
+                {"case_id": "new", "file_id": "newfile", "violation_behavior": text},
+                [{"chunk_id": "newunit", "chunk_text": text}],
+                [],
+            )
+        ],
+        source_text=text,
+    )
+    reader = object.__new__(KnowledgeEvidenceService)
+    reader.database, reader.additional_databases = (
+        original_db,
+        settings.additional_evidence_databases,
+    )
+    reader.p0, reader.articles, reader.scope_units, reader.versions = None, {}, {}, {}
+    evidence = reader.read("newunit")
+    assert evidence["literal_verified"] and evidence["file_id"] == "newfile"
+    assert evidence["segments"][0]["text"] == text
+
+
+def test_interrupted_multi_file_append_is_recovered_before_reading(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    root = settings.source_root("official_crawl")
+    root.mkdir(parents=True)
+    (root / "cases.jsonl").write_text('{"case_id":"incomplete', encoding="utf-8")
+    (root / ".pending_write.json").write_text(
+        json.dumps(
+            {
+                "id": "uncommitted",
+                "files": {
+                    name: [False, 0]
+                    for name in ("cases.jsonl", "case_chunks.jsonl", "case_expansions.jsonl")
+                },
+                "manifest": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    repository = CaseRepository(settings)
+    assert repository.statistics().total_cases == 1
+    assert not (root / "cases.jsonl").exists()
+    assert not (root / ".pending_write.json").exists()
+
+
+def test_committed_append_survives_crash_before_journal_cleanup(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = CaseRepository(settings)
+    repository.add_case(
+        {"case_id": "new", "case_origin": "official_crawl", "violation_behavior": "保险处罚"},
+        [],
+        [],
+    )
+    root = settings.source_root("official_crawl")
+    with sqlite3.connect(root / "evidence_registry.sqlite3") as connection:
+        token = connection.execute("SELECT id FROM ingestion_commits").fetchone()[0]
+    (root / ".pending_write.json").write_text(
+        json.dumps({"id": token, "files": {"cases.jsonl": [False, 0]}, "manifest": None}),
+        encoding="utf-8",
+    )
+    recovered = CaseRepository(settings)
+    assert recovered.statistics().crawled_cases == 1
+    assert recovered.get_case("new").source_group == "official_crawl"
+    assert not (root / ".pending_write.json").exists()

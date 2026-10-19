@@ -78,6 +78,16 @@ class AppSettings:
     agent_retrieval_enabled: bool = True
     risk_llm_concurrency: int = 6
     full_corpus: bool = True
+    collection_enabled: bool = False
+    collection_start_date: str = ""
+    collection_daily_time: str = "04:30"
+    collection_overlap_days: int = 3
+    collection_delay_seconds: float = 3.0
+    collection_jitter_seconds: float = 2.0
+    collection_max_pages: int = 3
+    collection_max_details: int = 12
+    collection_max_requests: int = 32
+    collection_columns: str = "4113,4114,4115"
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -150,6 +160,22 @@ class AppSettings:
             agent_retrieval_enabled=_env_bool("FINRISK_AGENT_RETRIEVAL", True),
             risk_llm_concurrency=int(os.getenv("FINRISK_RISK_LLM_CONCURRENCY", "6")),
             full_corpus=_env_bool("FINRISK_FULL_CORPUS", True),
+            collection_enabled=_env_bool("FINRISK_COLLECTION_ENABLED", False),
+            collection_start_date=os.getenv("FINRISK_COLLECTION_START_DATE", "").strip(),
+            collection_daily_time=os.getenv("FINRISK_COLLECTION_DAILY_TIME", "04:30"),
+            collection_overlap_days=max(1, int(os.getenv("FINRISK_COLLECTION_OVERLAP_DAYS", "3"))),
+            collection_delay_seconds=max(3.0, float(os.getenv("FINRISK_COLLECTION_DELAY", "3"))),
+            collection_jitter_seconds=max(0.0, float(os.getenv("FINRISK_COLLECTION_JITTER", "2"))),
+            collection_max_pages=max(
+                1, min(5, int(os.getenv("FINRISK_COLLECTION_MAX_PAGES", "3")))
+            ),
+            collection_max_details=max(
+                1, min(30, int(os.getenv("FINRISK_COLLECTION_MAX_DETAILS", "12")))
+            ),
+            collection_max_requests=max(
+                4, min(80, int(os.getenv("FINRISK_COLLECTION_MAX_REQUESTS", "32")))
+            ),
+            collection_columns=os.getenv("FINRISK_COLLECTION_COLUMNS", "4113,4114,4115"),
         )
 
     @property
@@ -182,3 +208,23 @@ class AppSettings:
     @property
     def manifest_path(self) -> Path:
         return self.case_kb_root / "manifest.json"
+
+    @property
+    def incremental_cases_root(self) -> Path:
+        return self.project_root / "data" / "processed" / "case_sources"
+
+    def source_root(self, origin: str) -> Path:
+        if origin not in {"official_crawl", "web_ingestion"}:
+            raise ValueError("新增案例来源不合法")
+        return self.incremental_cases_root / origin
+
+    @property
+    def collection_root(self) -> Path:
+        return self.project_root / "data" / "raw" / "cases" / "official_crawl"
+
+    @property
+    def additional_evidence_databases(self) -> tuple[Path, ...]:
+        return tuple(
+            self.source_root(origin) / "evidence_registry.sqlite3"
+            for origin in ("official_crawl", "web_ingestion")
+        )

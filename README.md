@@ -83,7 +83,7 @@ Linux 对应 `install.sh`、`start.sh`、`verify.sh`。运行需要 Python 3.11+
 | `scripts/fetch_competition_assets.py`、`scripts/import_competition_kb.py`、`scripts/merge_kb_p0.py` | 固定版本下载、导入、P0 资产与全量投影构建 |
 | `scripts/benchmark_competition500.py` | 新500候选池风险、检索及三种重排对照 |
 | `scripts/update_cases_from_web.py`、`src/offline/` | 监管处罚增量采集及入库 |
-| `reports/competition500/` | GitHub分发的冻结预测、前后指标、逐标签FP/FN及数据指纹 |
+| `reports/competition500/` | 当前复核参考下的真实API指标、逐条预测、逐标签FP/FN及数据指纹 |
 | `outputs/` | 本地API过程文件、构建收据和运行日志，不进入Git |
 | `docs/` | 当前架构、契约、数据口径和效果报告 |
 | `deploy/`、`scripts/package_submission.ps1` | 可选部署配置和本地交付打包，本轮未执行部署 |
@@ -95,15 +95,25 @@ $env:FINRISK_BENCH_RUN='reproduction'
 .venv\Scripts\python.exe scripts/benchmark_competition500.py --help
 .venv\Scripts\python.exe scripts/audit_competition_dataset.py
 .venv\Scripts\python.exe scripts/benchmark_competition500.py test --mode deepseek_adaptive
-.venv\Scripts\python.exe scripts/benchmark_longtext.py
-.venv\Scripts\python.exe scripts/publish_competition_results.py --run reproduction
+.venv\Scripts\python.exe scripts/benchmark_competition500.py retrieval-test --rerank-providers deepseek
+.venv\Scripts\python.exe scripts/publish_self_review_results.py --run reproduction
 ```
 
-本轮测试使用500份不同文书的500案例、400开发Query、200独立测试Query。开发集用于轻量模型训练与默认选择；测试源文书不重合。Query及参考为模型辅助银标，相关性逐条覆盖500候选，不冒充人工金标。
+本轮使用500份文书的500案例、400开发Query及200源文书隔离测试Query。Codex自己逐条复核600条Query及500个候选案例，未调用其他模型审核答案。新参考为Codex自复核结果；相关性由逐条核查的行为目录确定性展开，不冒充人类专家金标或30万对独立人工评分。
 
-固定200条真实API回归：标签Micro-F1由0.513升至0.526，FP由334降至270，FN由103增至118；
-原15句未复核已清零，同组长文本检出由11/12升至12/12。本轮主要改善误判与执行完整性，
-标签召回仍需继续提高。完整指标及耗时见[技术与效果报告](docs/competition_upgrade_20261019.md)。
+修改前后、证据和理由随数据集保存。真实API只执行项目推理与效果测试；训练和few-shot仅使用修正后的400条开发Query。参考版本已改变，新指标不与旧银标分数直接比较。最新结果见[自复核与真实API报告](docs/dataset_review_20261019.md)。
 
 [任务映射](docs/competition_delivery.md)、[数据说明](docs/dataset_card.md)、[Query流程](docs/query_pipeline.md)。
 Web效果页、下载结果及CSV/JSONL统一读取`reports/competition500/`。
+
+## 每日官网增量
+
+已接入国家金融监督管理总局 4113/4114/4115 三个处罚栏目。Web 服务内置每日调度，
+默认北京时间 04:30 执行。首次启动以当天为永久起始日期，随后更新到前一天，
+保留重叠日期补查及待办队列；不会先回补全站历史案例。
+请求串行并设随机间隔、HTTP 缓存和每轮预算，遇限流或验证页暂停。
+
+原始知识库、官网采集、网页录入分开存放，查询时统一检索；页面可按三种来源筛选。
+新增案例继续使用 Pi/DeepSeek、同一 27 类标签及原文证据链，Qwen 复用向量检查点更新索引。
+配置、数据位置与运行命令见[采集说明](src/offline/penalty_crawler/README.md)，
+本轮验证见[接入与测试记录](docs/official_collection_20261019.md)。

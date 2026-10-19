@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -24,8 +26,9 @@ def _rows(path: Path) -> list[dict[str, Any]]:
 
 
 class KnowledgeEvidenceService:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, additional_databases: tuple[Path, ...] = ()) -> None:
         self.root = root
+        self.additional_databases = additional_databases
         manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
         self.versions = manifest.get("knowledge_versions", {})
         bundle = root / "source_bundle"
@@ -69,8 +72,23 @@ class KnowledgeEvidenceService:
             for key, article in self.articles.items()
         )
 
-    def _connection(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.database.resolve().as_uri() + "?mode=ro", uri=True)
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(":memory:", uri=True)
+        try:
+            databases = [self.database, *(p for p in self.additional_databases if p.is_file())]
+            for index, path in enumerate(databases):
+                connection.execute(
+                    f"ATTACH DATABASE ? AS source_{index}", (path.resolve().as_uri() + "?mode=ro",)
+                )
+            for table in ("sources", "units", "evidence"):
+                union = " UNION ALL ".join(
+                    f"SELECT * FROM source_{i}.{table}" for i in range(len(databases))
+                )
+                connection.execute(f"CREATE TEMP VIEW {table} AS {union}")
+            yield connection
+        finally:
+            connection.close()
 
     @lru_cache(maxsize=4096)
     def read(self, identifier: str, layer: str = "hit") -> dict[str, Any]:

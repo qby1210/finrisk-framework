@@ -26,6 +26,7 @@ class CaseSummary(ContractModel):
     risk_tags: list[str] = Field(default_factory=list)
     risk_domains: list[str] = Field(default_factory=list)
     case_origin: str
+    source_group: str = "original"
     retrieval_status: str
     evidence_status: str
     is_user_managed: bool = False
@@ -80,6 +81,7 @@ class CaseStatistics(ContractModel):
     total_cases: int = Field(ge=0)
     base_cases: int = Field(ge=0)
     user_cases: int = Field(ge=0)
+    crawled_cases: int = Field(default=0, ge=0)
     active_cases: int = Field(ge=0)
     risk_tag_count: int = Field(ge=0)
     data_version: str | None = None

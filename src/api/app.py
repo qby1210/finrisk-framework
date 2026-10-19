@@ -11,13 +11,24 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 
 from application.analysis_service import QueryAnalysisService
 from application.case_service import CaseManagementService
+from application.collection_service import CollectionService
 from application.evidence_service import KnowledgeEvidenceService
 from application.query_service import QueryProcessingService
 from application.retrieval_service import CaseRetrievalService, CaseSearchFilters
@@ -65,7 +76,12 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await client.start()
         except LLMProviderError as error:
             application.state.agent_start_error = str(error)
-    yield
+    collector = get_collection_service()
+    collector.start()
+    try:
+        yield
+    finally:
+        await collector.stop()
     for variant in _ANALYSIS_OPTIONS.values():
         variant.risk_pipeline.retrieval_service.close()
     _ANALYSIS_OPTIONS.clear()
@@ -79,6 +95,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         get_analysis_service,
         get_query_service,
         get_case_service,
+        get_collection_service,
         get_llm_client,
         get_retrieval_service,
         get_evidence_service,
@@ -147,7 +164,9 @@ def get_retrieval_service() -> CaseRetrievalService:
 def get_evidence_service() -> KnowledgeEvidenceService | None:
     root = get_settings().case_kb_root
     return (
-        KnowledgeEvidenceService(root) if (root / "evidence_registry.sqlite3").is_file() else None
+        KnowledgeEvidenceService(root, get_settings().additional_evidence_databases)
+        if (root / "evidence_registry.sqlite3").is_file()
+        else None
     )
 
 
@@ -225,6 +244,16 @@ def get_case_service() -> CaseManagementService:
         rule_detector=get_rule_detector(),
         llm_client=get_llm_client(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_collection_service() -> CollectionService:
+    return CollectionService(get_settings(), get_case_service(), get_retrieval_service())
+
+
+@app.get("/api/collection/status")
+async def collection_status() -> dict[str, object]:
+    return get_collection_service().status()
 
 
 AnalysisDependency = Annotated[QueryAnalysisService, Depends(get_analysis_service)]
@@ -420,17 +449,27 @@ async def case_source(case_id: str, service: CaseDependency) -> FileResponse:
         item = service.get_case(case_id)
     except CaseNotFoundError as error:
         raise HTTPException(status_code=404, detail="案例不存在") from error
-    root = (PROJECT_ROOT / "raw_pdfs").resolve()
-    path = (PROJECT_ROOT / (item.raw_source_file or "")).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
-        raise HTTPException(status_code=404, detail="暂无已绑定的原始PDF")
+    settings = get_settings()
+    roots = (
+        (settings.project_root / "raw_pdfs").resolve(),
+        settings.raw_case_upload_dir.resolve(),
+        settings.collection_root.resolve(),
+    )
+    path = (settings.project_root / (item.raw_source_file or "")).resolve()
+    if not any(path.is_relative_to(root) for root in roots) or not path.is_file():
+        raise HTTPException(status_code=404, detail="暂无已绑定的来源原件")
+    is_pdf = path.suffix.lower() == ".pdf"
     return FileResponse(
-        path, media_type="application/pdf", filename=path.name, content_disposition_type="inline"
+        path,
+        media_type="application/pdf" if is_pdf else "application/octet-stream",
+        filename=path.name,
+        content_disposition_type="inline" if is_pdf else "attachment",
     )
 
 
 @app.post("/api/cases/upload", response_model=CaseIngestionResult, status_code=201)
 async def upload_case(
+    background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File(description="待增量入库的案例 PDF 或文档")],
     service: CaseDependency,
 ) -> CaseIngestionResult:
@@ -439,7 +478,9 @@ async def upload_case(
         with TemporaryDirectory(prefix="finrisk-case-") as temporary_directory:
             temporary_path = Path(temporary_directory) / safe_filename
             await _save_upload(file, temporary_path, get_settings().max_upload_size_bytes)
-            return await service.ingest_file(temporary_path, original_filename=safe_filename)
+            result = await service.ingest_file(temporary_path, original_filename=safe_filename)
+            background_tasks.add_task(get_collection_service().refresh_indexes)
+            return result
     except HTTPException:
         raise
     except DuplicateCaseError as error:

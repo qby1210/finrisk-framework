@@ -32,6 +32,14 @@ def main():
             "training_ids": sorted(ids),
             "taxonomy_size": len(taxonomy),
             "test_queries_used": 0,
+            "training_reference_sha256": hashlib.sha256(
+                (DATA / "reference/labels.jsonl").read_bytes()
+            ).hexdigest(),
+            "training_input_sha256": hashlib.sha256(
+                (DATA / "development.jsonl").read_bytes()
+            ).hexdigest(),
+            "reference_version": "competition500-codex-reviewed-v2-20261019",
+            "training_api_calls": 0,
             "method": "hashed character 2/3-gram, softmax states and 27 sigmoid labels",
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         },

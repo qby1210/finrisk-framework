@@ -180,7 +180,7 @@ async function loadHealth() {
   try {
     const data = await api("/api/health");
     el("#health-state").classList.add("is-ready");
-    el("#health-text").textContent = `${data.active_case_count.toLocaleString("zh-CN")} ${data.case_listing_unit === "document" ? "份新库文书" : "条案例"}可用`;
+    el("#health-text").textContent = `${data.active_case_count.toLocaleString("zh-CN")} ${data.case_listing_unit === "document" ? "份文书" : "条案例"}可用`;
     const runtime = data.agent_runtime;
     const rerankNames = {none:"多路融合",cloud:"Qwen 重排",deepseek:"DeepSeek 重排"};
     const timingNames = {post:"Post",pre:"Pre",adaptive:"自适应融合"};
@@ -579,8 +579,8 @@ async function loadEvaluation() {
       <article class="summary-card"><span>风险标签 Micro-F1</span><strong>${pct(selected.label_micro_f1)}</strong><small>固定27类标签</small></article>
       <article class="summary-card"><span>类案命中率 @5</span><strong>${pct(retrieval.hit5)}</strong><small>前5条至少一个相关案例</small></article>
       <article class="summary-card"><span>中位耗时</span><strong>${selected.median_seconds.toFixed(2)}s</strong><small>${escapeHtml(modeName(data.selected_mode))}</small></article></div>
-      <h3>风险审查对照</h3><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>配置</th><th>风险准确率</th><th>三态准确率</th><th>标签F1</th><th>场景准确率</th><th>待复核句</th><th>中位耗时</th></tr></thead><tbody>${Object.entries(data.risk).map(([key,v])=>`<tr><td>${escapeHtml(modeName(key))}${key===data.selected_mode?" · 推荐":""}</td><td>${pct(v.risk_binary_accuracy)}</td><td>${pct(v.state_accuracy)}</td><td>${pct(v.label_micro_f1)}</td><td>${pct(v.scene_accuracy)}</td><td>${v.missing_model_targets}</td><td>${v.median_seconds.toFixed(2)}s</td></tr>`).join("")}</tbody></table></div>
-      <h3>500案例检索对照</h3><p class="muted">模型辅助银标；${retrieval.positive_queries}/${retrieval.judged_queries}条Query有强相关案例。Hit表示至少命中一条，Recall表示相关集合覆盖率。${escapeHtml(data.retrieval_measurement_note || "")}</p><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>排序</th><th>命中率@5</th><th>Recall@10</th><th>MRR@20</th><th>NDCG@10</th></tr></thead><tbody>${Object.entries(data.retrieval).map(([key,v])=>`<tr><td>${names[key]}</td><td>${pct(v.hit5)}</td><td>${pct(v.recall_at_10)}</td><td>${v.mrr.toFixed(3)}</td><td>${v.ndcg_at_10.toFixed(3)}</td></tr>`).join("")}</tbody></table></div>${renderLongtextEvaluation(data)}`;
+      <h3>风险审查结果</h3><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>配置</th><th>风险准确率</th><th>三态准确率</th><th>标签F1</th><th>场景准确率</th><th>待复核句</th><th>中位耗时</th></tr></thead><tbody>${Object.entries(data.risk).map(([key,v])=>`<tr><td>${escapeHtml(modeName(key))}${key===data.selected_mode?" · 推荐":""}</td><td>${pct(v.risk_binary_accuracy)}</td><td>${pct(v.state_accuracy)}</td><td>${pct(v.label_micro_f1)}</td><td>${pct(v.scene_accuracy)}</td><td>${v.missing_model_targets}</td><td>${v.median_seconds.toFixed(2)}s</td></tr>`).join("")}</tbody></table></div>
+      <h3>500案例检索结果</h3><p class="muted">${escapeHtml(data.dataset.annotation)}；${retrieval.positive_queries}/${retrieval.judged_queries}条Query有强相关案例。Hit表示至少命中一条，Recall表示相关集合覆盖率。</p><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>排序</th><th>命中率@5</th><th>Recall@10</th><th>MRR@20</th><th>NDCG@10</th></tr></thead><tbody>${Object.entries(data.retrieval).map(([key,v])=>`<tr><td>${names[key]}</td><td>${pct(v.hit5)}</td><td>${pct(v.recall_at_10)}</td><td>${v.mrr.toFixed(3)}</td><td>${v.ndcg_at_10.toFixed(3)}</td></tr>`).join("")}</tbody></table></div>${renderLongtextEvaluation(data)}`;
   } catch (error) { target.innerHTML = `<div class="inline-empty error">${escapeHtml(error.message)}</div>`; }
 }
 
@@ -651,8 +651,23 @@ async function loadStatistics() {
     el("#case-stats").querySelectorAll("strong").forEach((node, index) => {
       node.textContent = items[index].toLocaleString("zh-CN");
     });
+    el("#case-source-counts").textContent = `原始知识库 ${value.base_cases.toLocaleString("zh-CN")} · 官网采集 ${(value.crawled_cases || 0).toLocaleString("zh-CN")} · 网页录入 ${value.user_cases.toLocaleString("zh-CN")}`;
+    await loadCollectionStatus();
   } catch (error) {
     toast(`统计读取失败：${error.message}`);
+  }
+}
+
+async function loadCollectionStatus() {
+  try {
+    const value = await api("/api/collection/status");
+    const node = el("#collection-status");
+    const statusNames = { running: "采集中", success: "已更新", partial: "待续更新", paused: "官网访问暂停", interrupted: "待下次续跑", waiting: "等待新案例", collected: "已采集" };
+    const next = value.next_run_at ? new Date(value.next_run_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+    node.textContent = value.enabled ? `每日 ${value.daily_time} · ${statusNames[value.status] || "已启用"}${next ? ` · 下次 ${next}` : ""}` : "每日更新未启用";
+    node.title = [value.start_date ? `起始日期：${value.start_date}` : "", `待处理 ${(value.pending_parts || 0) + (value.pending_documents || 0)} 项`, `索引：${value.index_status}`].filter(Boolean).join("；");
+  } catch {
+    el("#collection-status").textContent = "采集状态暂不可用";
   }
 }
 
@@ -682,6 +697,10 @@ regulator: el("#case-regulator").value.trim(),
   }
 }
 
+function caseSourceName(item) {
+  return ({ original: "原始知识库", official_crawl: "官网采集", web_ingestion: "网页录入" })[item.source_group] || "原始知识库";
+}
+
 function renderCaseList() {
   const result = state.caseResult;
   el("#case-count-label").textContent = `共 ${result.total.toLocaleString("zh-CN")} 份文书 · 第 ${result.page} / ${Math.max(result.total_pages, 1)} 页`;
@@ -699,7 +718,7 @@ function renderCaseList() {
         <div class="case-meta">
           <span>${escapeHtml(item.regulator || "监管机构未记录")}</span>
           <span>${formatDate(item.penalty_date)}</span>
-          <span class="origin-chip">${item.is_user_managed ? "Web 新增" : "新知识库"}</span>
+          <span class="origin-chip">${caseSourceName(item)}</span>
           <span class="status-chip ${escapeHtml(item.retrieval_status)}">${item.retrieval_status === "active" ? "启用" : "已停用"}</span>
         </div>
       </article>
@@ -791,7 +810,7 @@ function renderCaseDetail(item) {
       <div><dt>处罚日期</dt><dd>${formatDate(item.penalty_date)}</dd></div>
       <div><dt>机构类型</dt><dd>${escapeHtml(item.institution_type || "—")}</dd></div>
       <div><dt>发布日期</dt><dd>${formatDate(item.publish_date)}</dd></div>
-      <div><dt>数据来源</dt><dd>${item.is_user_managed ? "Web 增量录入" : "当前新知识库"}</dd></div>
+      <div><dt>数据来源</dt><dd>${caseSourceName(item)}</dd></div>
       <div><dt>检索状态</dt><dd>${item.retrieval_status === "active" ? "启用" : "已停用"}</dd></div>
     </dl>
     <section class="detail-section"><h3>违法事实</h3><p>${escapeHtml(item.violation_behavior || "—")}</p></section>
@@ -799,7 +818,7 @@ function renderCaseDetail(item) {
     ${item.case_summary ? `<section class="detail-section"><h3>案例摘要</h3><p>${escapeHtml(item.case_summary)}</p></section>` : ""}
     ${(item.entity_relations || []).length ? `<section class="detail-section"><h3>主体关联</h3>${item.entity_relations.map(r => `<p>${escapeHtml(r.source || "")} · ${escapeHtml(r.relation || "")} · ${escapeHtml(r.target || "")}</p>`).join("")}</section>` : ""}
     ${Object.keys(item.field_quality || {}).length ? `<details class="detail-section"><summary>字段来源</summary>${Object.entries(item.field_quality).map(([field, quality]) => `<p>${escapeHtml(fieldLabels[field] || field)} · ${escapeHtml(quality)}</p>`).join("")}</details>` : ""}
-    ${item.raw_source_file ? `<section class="detail-section"><a class="quiet-button" href="/api/cases/${encodeURIComponent(item.case_id)}/source" target="_blank" rel="noopener">查看原始 PDF ↗</a></section>` : ""}
+    ${item.raw_source_file ? `<section class="detail-section"><a class="quiet-button" href="/api/cases/${encodeURIComponent(item.case_id)}/source" target="_blank" rel="noopener">查看来源原件 ↗</a></section>` : ""}
     ${(item.related_cases || []).length ? `<section class="detail-section"><h3>同文书其他主体</h3>${item.related_cases.map(subject => `<article><button class="quiet-button" type="button" data-related-case="${escapeHtml(subject.case_id)}">${escapeHtml(subject.party_name || subject.case_title || subject.case_id)}</button><p>${escapeHtml(subject.violation_behavior)}</p></article>`).join("")}</section>` : ""}
     <section class="detail-section"><h3>证据切片 <small>${item.evidence_chunks.length}</small></h3><div class="evidence-list">${evidence || '<p class="muted">暂无证据切片。</p>'}</div></section>
     <div class="drawer-actions">

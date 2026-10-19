@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import re
+import sqlite3
 from collections import Counter
 
 from build_competition_dataset import DATA, ROOT, read_rows, save
@@ -21,6 +23,16 @@ def main():
     assert len(development) == 400 and len(test) == 200
     assert len(validation) == 100 and validation == development[:100]
     assert len({r["source_sha256"] for r in pool}) == 500
+    database = AppSettings.from_env().case_kb_root / "evidence_registry.sqlite3"
+    with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        for case in pool:
+            source, sha = connection.execute(
+                "SELECT text,sha256 FROM sources WHERE file_id=?", (case["file_id"],)
+            ).fetchone()
+            assert sha == case["source_sha256"]
+            assert case["source_quotes"]
+            for quote in case["source_quotes"]:
+                assert re.sub(r"\s+", "", quote) in re.sub(r"\s+", "", source), case["case_id"]
     ids = {r["query_id"] for r in development}
     test_ids = {r["query_id"] for r in test}
     assert not ids & test_ids
@@ -50,8 +62,10 @@ def main():
         "source_sha256_overlap": 0,
         "duplicate_text_overlap": 0,
         "fixed_label_count": 27,
+        "case_source_quote_mismatches": 0,
         "old_evaluation_data_used": False,
-        "annotation": "model_silver",
+        "annotation": "codex_direct_source_review_not_human_expert_gold",
+        "external_model_review_calls": 0,
         "nonliteral_label_quote_rows": sum(
             bool(r.get("nonliteral_evidence_count")) for r in labels
         ),
@@ -61,7 +75,18 @@ def main():
     pool_ids = {r["case_id"] for r in pool}
     pool_by_id = {r["case_id"]: r for r in pool}
     query_by_id = {r["query_id"]: r["text"] for r in [*development, *test]}
-    for split, expected in [("development", 60), ("test", 200)]:
+    reviewed = read_rows(DATA / "reference/query_reviews.jsonl")
+    case_reviews = read_rows(DATA / "reference/case_reviews.jsonl")
+    assert len(reviewed) == 600 and len({r["id"] for r in reviewed}) == 600
+    assert len(case_reviews) == 500 and len({r["id"] for r in case_reviews}) == 500
+    assert all(quote in query_by_id[r["query_id"]] for r in labels for quote in r["evidence"])
+    assert all(r["evidence"] for r in labels if r["decision_state"] == "risk")
+    manifest = json.loads((DATA / "manifest.json").read_text("utf-8"))
+    for relative, fingerprint in manifest["hashes"].items():
+        assert hashlib.sha256((DATA / relative).read_bytes()).hexdigest() == fingerprint, relative
+    report["direct_query_reviews"] = len(reviewed)
+    report["direct_case_reviews"] = len(case_reviews)
+    for split, expected in [("development", 400), ("test", 200)]:
         path = DATA / f"reference/qrels_{split}.jsonl"
         if not path.exists():
             continue
@@ -75,12 +100,15 @@ def main():
             for cid, proof in row["positive_evidence"].items():
                 assert proof["grade"] == row["grades"][cid]
                 assert proof["query_quote"] in query_by_id[row["query_id"]]
-                assert proof["case_quote"] in pool_by_id[cid]["violation_behavior"][:450]
+                assert proof["case_quote"] in pool_by_id[cid]["fact_text"]
+                assert proof["source_sha256"] == pool_by_id[cid]["source_sha256"]
+                assert proof["mechanisms"]
         report["qrels"][split] = {
             "queries": len(rows),
             "explicit_pairs": len(rows) * 500,
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "protocol": "paired-behavior-evidence-v2",
+            "protocol": "direct-source-review-mechanisms-v3",
+            "queries_without_strong_case": sum(not r["positive_evidence"] for r in rows),
         }
     save(ROOT / "outputs/competition_upgrade_20261019/dataset_audit.json", report)
     print(json.dumps(report, ensure_ascii=False))

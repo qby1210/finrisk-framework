@@ -405,5 +405,9 @@
   "taxonomy_size": 27,
   "test_queries_used": 0,
   "method": "hashed character 2/3-gram, softmax states and 27 sigmoid labels",
-  "sha256": "38d3fa90e2754c196b98e4654dc2ce4f27f97066490a758f3d468da3332b42b0"
+  "sha256": "c426a7ef0abeb4683f0e813de2cf3a49b2eb27ecd6b9584b36807552ce8da5b2",
+  "training_reference_sha256": "40c2fb580b6ae3b24ef781fdc7eaabbeaab4290e88de83ab8a77f39168be8b70",
+  "training_input_sha256": "b44803c1378a0a9708f1260656ac55d7b1aff187cacca0e0a440c36c327d6573",
+  "reference_version": "competition500-codex-reviewed-v2-20261019",
+  "training_api_calls": 0
 }

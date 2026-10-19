@@ -15,29 +15,32 @@ from domain.risk_models import RiskEvidence
 
 REGEX_LABEL_MAP: dict[str, tuple[str, ...]] = {
     "unlicensed_premises": ("其他",),
-    "absolute_guarantee": ("承诺收益", "保证收益", "绝对化表述", "销售误导"),
-    "bank_comparison": ("不当比较", "销售误导"),
-    "deposit_disguise": ("欺骗投保人", "销售误导", "隐瞒重要信息"),
-    "no_risk_claim": ("承诺收益", "绝对化表述", "销售误导"),
+    "absolute_guarantee": ("承诺收益", "保证收益"),
+    "bank_comparison": ("不当比较",),
+    "deposit_disguise": ("销售误导",),
+    "no_risk_claim": ("绝对化表述",),
     "urgency_pressure": ("诱导投保",),
-    "gift_inducement": ("赠送利益", "合同外利益", "诱导投保"),
-    "tax_debt_evasion": ("避债避税", "虚假宣传"),
+    "gift_inducement": ("赠送利益",),
+    "tax_debt_evasion": ("避债避税",),
     "fake_endorsement": ("虚假宣传", "欺骗投保人"),
-    "exaggerated_return": ("夸大收益", "虚构收益率", "销售误导"),
-    "absolute_service_claim": ("绝对化表述", "虚假宣传"),
+    "exaggerated_return": ("夸大收益",),
+    "absolute_service_claim": ("绝对化表述",),
     "false_expense": ("虚列费用套取资金",),
     "fake_callback": ("回访违规", "客户信息不真实"),
-    "unfiled_rate_terms": ("未按规定使用费率条款", "隐瞒重要信息"),
+    "unfiled_rate_terms": ("未按规定使用费率条款",),
     "unauthorized_sales": ("委托无资质机构销售",),
     "agent_mismanagement": ("代理人管理不到位",),
+    "unqualified_individual": ("代理人管理不到位",),
+    "private_premium_account": ("其他",),
+    "false_financial_reporting": ("其他",),
     "customer_data_fabrication": ("客户信息不真实",),
-    "kickback_rebate": ("回扣返佣", "合同外利益"),
-    "concealed_terms": ("弱化风险提示", "隐瞒重要信息", "销售误导"),
-    "competitor_denigration": ("贬低竞品", "不当比较"),
+    "kickback_rebate": ("回扣返佣",),
+    "concealed_terms": ("弱化风险提示", "隐瞒重要信息"),
+    "competitor_denigration": ("贬低竞品",),
     "unsolicited_telemarketing": ("电销违规",),
     "fixed_income_promise": ("承诺收益", "销售误导"),
-    "broad_coverage_claim": ("虚假宣传",),
-    "premium_offset_benefit": ("赠送利益", "合同外利益", "诱导投保"),
+    "broad_coverage_claim": ("销售误导", "绝对化表述"),
+    "premium_offset_benefit": ("赠送利益",),
     "highest_projection_as_final": ("夸大收益", "销售误导"),
     "universal_suitability": ("绝对化表述", "销售误导"),
 }
@@ -51,13 +54,13 @@ _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     "absolute_guarantee": re.compile(
         r"(?:保证|承诺|确保|保底)[^，,。；;！？!?\n]{0,12}(?:收益|年化|回报|利息|分红)|"
-        r"稳赚不赔|保本保息|绝不亏损|零风险|肯定赔"
+        r"稳赚不赔|保本保息|绝不亏损|零风险"
     ),
     "false_expense": re.compile(
-        r"(?:虚构|虚假|伪造).{0,10}(?:发票|会务费|宣传费|业务费|费用).{0,20}(?:列支|报销|套取|转入)|"
-        r"(?:讲座|会议|活动).{0,16}(?:无|没有|未见).{0,8}(?:场地|会场|签到|预订).{0,8}(?:记录|凭证)|"
-        r"(?:照片|影像).{0,10}(?:来自|使用).{0,8}(?:旧|历史|往年|此前).{0,8}(?:活动|材料)|"
-        r"(?:资金|款项|费用).{0,24}(?:转入|流入|回流).{0,12}(?:营销|销售|员工|客户).{0,6}(?:团队|成员|账户)?"
+        r"(?:虚构|虚假|伪造).{0,10}(?:发票|会务费|宣传费|业务费|费用|中介业务).{0,20}(?:列支|报销|套取|转入)|"
+        r"虚列.{0,12}(?:费用|工资|薪酬|佣金|会议费|宣传费)|"
+        r"(?:虚挂|虚构).{0,10}(?:代理|中介|人员).{0,20}(?:手续费|佣金|套取)|"
+        r"(?:没有|并无|无).{0,8}真实(?:采购|服务|业务).{0,30}(?:报销|列支|套取|回流)"
     ),
     "fake_callback": re.compile(
         r"(?:业务员|代理人|销售人员).{0,12}(?:代接|冒充).{0,12}(?:客户|投保人)|"
@@ -71,12 +74,21 @@ _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
         r"(?:费率|条款).{0,12}(?:未经备案|未按规定使用)"
     ),
     "unauthorized_sales": re.compile(
-        r"(?:委托|交由).{0,12}(?:无资质|未取得资质|不具备资质).{0,12}(?:机构|人员|平台).{0,8}(?:销售|推介)|"
-        r"(?:无|没有|未取得|不具备).{0,8}(?:保险)?销售资质.{0,12}(?:会务|咨询|第三方|机构|公司).{0,28}(?:销售|宣讲|讲解|推介|邀约|需求访谈|承办)|"
-        r"(?:会务|咨询|第三方).{0,6}公司.{0,20}(?:负责|承办).{0,24}(?:产品讲解|保险责任|投保流程|需求访谈)"
+        r"(?:委托|交由).{0,12}(?:无资质|未取得资质|不具备资质).{0,12}(?:机构|公司|平台).{0,8}(?:销售|推介)|"
+        r"(?:未取得|不具备|没有).{0,8}(?:保险)?(?:销售资质|代理业务许可).{0,30}(?:销售|出单|代收保费|讲解产品)"
+    ),
+    "unqualified_individual": re.compile(
+        r"(?:委托|安排).{0,12}(?:未|无|没有).{0,8}(?:执业登记|资格证|展业证|执业证).{0,12}(?:人员|个人|业务员).{0,12}(?:销售|展业|营销)|"
+        r"(?:人员|个人|业务员).{0,14}未.{0,6}(?:登记|注册).{0,10}(?:已|即|先).{0,8}(?:展业|销售)"
+    ),
+    "private_premium_account": re.compile(
+        r"保费.{0,12}(?:打|进|转入|收至).{0,10}(?:私人|个人).{0,6}(?:账户|卡)"
+    ),
+    "false_financial_reporting": re.compile(
+        r"财务(?:业务)?数据不真实|(?:编制|提供).{0,4}虚假(?:的)?财务(?:资料|报表)|"
+        r"财务记录.{0,6}(?:与|和)实际.{0,8}不符"
     ),
     "agent_mismanagement": re.compile(
-        r"保费.{0,12}(?:打|进|转入|收至).{0,10}(?:私人|个人).{0,6}(?:账户|卡)|"
         r"(?:代理人|营销员).{0,12}(?:管理不到位|失管|违规销售)|"
         r"(?:未对|未能).{0,12}(?:代理人|营销员).{0,8}(?:培训|管理|监督)|"
         r"(?:主管|负责人|管理员).{0,8}(?:账号|权限).{0,24}(?:代录|批量|修改|确认|操作)|"
@@ -86,7 +98,7 @@ _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
     "customer_data_fabrication": re.compile(
         r"(?:虚构|伪造|篡改|代填).{0,10}(?:客户|投保人).{0,8}(?:信息|签名|资料)|"
         r"(?:客户|投保人).{0,8}(?:信息|资料).{0,8}(?:不真实|虚假)|"
-        r"(?:家属|亲属|员工|代理人|销售人员).{0,10}(?:代签|代填|代操作)|"
+        r"(?:家属|亲属|员工|代理人|销售人员).{0,10}代签|"
         r"(?:电子签名|签署时间).{0,24}(?:早于|先于).{0,12}(?:验证码|身份核验|保单生成)|"
         r"(?:职业|病史|收入|联系方式).{0,48}(?:修改|改为|变更).{0,48}(?:未|没有|缺少).{0,10}(?:客户|投保人)?(?:验证码|确认|核实|知情)"
     ),
@@ -103,8 +115,7 @@ _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     "competitor_denigration": re.compile(
         r"(?:其他|别家|竞品|同业).{0,10}(?:都是|全是|根本|一定).{0,8}(?:骗人|垃圾|不赔|不靠谱|差)|"
-        r"(?:[a-z]|其他|别家|竞品|同业).{0,5}(?:公司|产品|条款)?.{0,14}(?:理赔慢|条款坑|收益低|不赔|骗人|垃圾|不靠谱)|"
-        r"(?:[a-z]公司).{0,140}(?:放在一起|混合比较|混在一起|直接对比).{0,36}(?:不说明|未说明|没有说明|不区分)"
+        r"(?:[a-z]|其他|别家|竞品|同业).{0,5}(?:公司|产品|条款)?.{0,14}(?:理赔慢|条款坑|收益低|不赔|骗人|垃圾|不靠谱)"
     ),
     "unsolicited_telemarketing": re.compile(
         r"(?:未经同意|非法购买|违规获取).{0,16}(?:名单|手机号|联系方式).{0,16}"
@@ -137,12 +148,13 @@ _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     "bank_comparison": re.compile(
         r"(?:别人家|别家公司|其他公司).{0,12}(?:都没有|没有这个|做不到)|"
-        r"(?:只有|就).{0,4}(?:我们|本公司).{0,8}(?:才有|能做到|可以提供)"
+        r"(?:只有|就).{0,4}(?:我们|本公司).{0,8}(?:才有|能做到|可以提供)|"
+        r"(?:[a-z]公司).{0,140}(?:放在一起|混合比较|混在一起|直接对比).{0,36}(?:不说明|未说明|没有说明|不区分)"
     ),
     "urgency_pressure": re.compile(
-        r"(?:仅|限时|只有).{0,6}(?:今天|当日|\d+\s*天)|"
-        r"(?:先|立即|马上).{0,6}(?:(?:占|抢|锁定).{0,5}(?:额度|名额|资格)|把?(?:额度|名额|资格).{0,4}(?:占|抢|锁定))|"
-        r"(?:错过|逾期).{0,8}(?:不再|无法|不能).{0,8}(?:受理|购买|申购)"
+        r"(?:强制|强行|必须).{0,12}(?:搭售|搭配购买|一起投保|自行购买|自保)|"
+        r"(?:不买|未投保|不投保).{0,12}(?:不受理|不给办|扣绩效|扣工资)|"
+        r"(?:虚构|捏造).{0,10}(?:限售|停售|限量|名额)"
     ),
 }
 _NEGATION_PREFIX = re.compile(r"(?:不|并非|不是|不得|严禁|禁止|不可|切勿|避免|杜绝)$")
@@ -356,10 +368,11 @@ class RuleRiskDetector:
             if match is None:
                 continue
             strength = 0.88 * _scene_factor(REGEX_LABEL_MAP.get(name, ()), scene)
-            explicit_other = explicit_other or name == "unlicensed_premises"
+            other_supported = "其他" in REGEX_LABEL_MAP.get(name, ())
+            explicit_other = explicit_other or other_supported
             stage1_strengths.append(min(0.96, strength))
             for label in REGEX_LABEL_MAP.get(name, ("其他",)):
-                if label != "其他" or name == "unlicensed_premises":
+                if label != "其他" or other_supported:
                     label_scores[label] = label_scores.get(label, 0.0) + strength
             evidence.append(
                 RiskEvidence(

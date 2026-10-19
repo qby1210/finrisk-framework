@@ -354,6 +354,72 @@ class IncrementalCaseBuilder:
             )
         return artifacts
 
+    async def build_imported(
+        self,
+        extraction: FileExtractionResult,
+        *,
+        source_file: str,
+        payload: dict[str, object],
+        atomic_index: int = 1,
+    ) -> CaseIngestionArtifacts:
+        """Validate existing structured fields and literal quotes without requesting a model."""
+        output = _CaseLLMOutput.model_validate(payload)
+        if output.is_insurance_related is not True:
+            raise ValueError("导入案例未确认保险相关性")
+        if not output.party_name or output.party_name not in extraction.full_text:
+            raise ValueError("导入案例的主体未对应原文")
+        if not output.fact_quotes or any(q not in extraction.full_text for q in output.fact_quotes):
+            raise ValueError("导入案例的事实引文未对应原文")
+        if set(output.risk_tags) - self._taxonomy_set:
+            raise ValueError("导入案例包含27类以外的风险标签")
+        if any(b.quote not in extraction.full_text for b in output.risk_tag_basis):
+            raise ValueError("导入标签的引文未对应原文")
+        for field in ("penalty_content", "penalty_doc_no", "regulator"):
+            value = getattr(output, field)
+            if value and value not in extraction.full_text:
+                raise ValueError(f"导入案例的{field}未对应原文")
+        import_kind = str(payload.get("import_kind") or "prestructured_release")
+        if import_kind not in {"prestructured_release", "legacy_structured", "collected_fields"}:
+            raise ValueError("未知的已有材料导入方式")
+        built = await self.build(
+            extraction, source_file=source_file, structured=output, atomic_index=atomic_index
+        )
+        record = built.record
+        record.update(
+            parse_status="ok",
+            review_status="pending",
+            risk_tag_confidence=None,
+            quality_flags=[f"{import_kind}_import", "literal_evidence_checked"],
+            field_confidence={},
+            human_review_status="pending",
+            human_approved=False,
+            marketing_relevance_reason="从已采集原文导入并核对处罚事实与标签",
+        )
+        record["field_sources"] = {
+            name: {"origin": import_kind, "check": "literal_source_validation"}
+            for name in (
+                "party_name",
+                "violation_behavior",
+                "penalty_content",
+                "penalty_doc_no",
+                "regulator",
+                "penalty_date",
+            )
+            if record.get(name)
+        }
+        basis_rows = record.get("risk_tag_basis", [])
+        if isinstance(basis_rows, list):
+            for basis in basis_rows:
+                if isinstance(basis, dict):
+                    basis["link_source"] = import_kind
+        if isinstance(payload.get("upstream_case_id"), str):
+            record["upstream_case_id"] = payload["upstream_case_id"]
+        if isinstance(payload.get("party_type"), str):
+            record["party_type"] = payload["party_type"]
+        if isinstance(payload.get("penalty_amounts"), list):
+            record["penalty_amounts"] = payload["penalty_amounts"]
+        return CaseIngestionArtifacts(record, built.chunks, built.expansions, False, built.warnings)
+
     async def _call_llm(self, text: str) -> _CaseLLMOutput:
         if self.llm_client is None:
             raise LLMProviderError("大模型未配置")

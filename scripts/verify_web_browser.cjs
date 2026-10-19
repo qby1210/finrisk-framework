@@ -53,6 +53,35 @@ async function main() {
     }
     await page.getByRole("button", { name: "案例管理", exact: true }).click();
     await page.locator("#case-list [data-open-case]").first().waitFor();
+    assert.equal(await page.locator("#case-origin option").count(), 4);
+    assert.match(await page.locator("#case-source-counts").innerText(), /原始知识库.*官网采集.*网页录入/);
+    const collection = await (await page.request.get("/api/collection/status")).json();
+    assert.equal(collection.daily_time, "04:30");
+    result.collection = { enabled: collection.enabled, start_date: collection.start_date, next_run_at: collection.next_run_at };
+    const statistics = await (await page.request.get("/api/cases/statistics")).json();
+    for (const [origin, count] of [["original", statistics.base_cases], ["official_crawl", statistics.crawled_cases], ["web_ingestion", statistics.user_cases]]) {
+      const filtered = await (await page.request.get(`/api/cases?origin=${origin}&page_size=1`)).json();
+      assert.equal(filtered.total, count);
+      if (filtered.items.length) assert.equal(filtered.items[0].source_group, origin);
+    }
+    await page.screenshot({ path: path.join(out, "03a_collection_sources.png"), fullPage: true });
+    if (statistics.crawled_cases > 0) {
+      await page.locator("#case-origin").selectOption("official_crawl");
+      const response = page.waitForResponse(r => r.url().includes("/api/cases?") && r.url().includes("origin=official_crawl"));
+      await page.getByRole("button", { name: "查询", exact: true }).click();
+      await response;
+      await page.locator("#case-list .origin-chip").filter({ hasText: "官网采集" }).first().waitFor();
+      await page.locator("#case-list [data-open-case]").first().click();
+      await page.locator("#case-detail").getByText("官网采集", { exact: true }).waitFor();
+      const original = await page.locator("#case-detail").getByRole("link", { name: "查看来源原件 ↗" }).getAttribute("href");
+      const source = await page.request.get(original);
+      assert.equal(source.status(), 200);
+      assert.match(await source.text(), /保险/);
+      result.crawled_source_download = true;
+      await page.screenshot({ path: path.join(out, "03b_official_case.png"), fullPage: true });
+      await page.locator("#drawer-close").click();
+      await page.locator("#case-origin").selectOption("");
+    }
     const recordPath = path.join(root, "data/processed/knowledge/finrisk_v2_1_20261018/data/cases.jsonl");
     const raw = fs.readFileSync(recordPath, "utf8").split("\n").find(line => line.includes('"raw_source_file"'));
     const record = JSON.parse(raw);
@@ -61,7 +90,7 @@ async function main() {
     await page.locator(`#case-list [data-open-case="${record.case_id}"]`).first().click();
     await page.locator("#case-detail").getByText("机构类型", { exact: true }).waitFor();
     assert.ok(await page.locator("#case-detail").getByText("主体关联", { exact: true }).count());
-    assert.ok(await page.locator("#case-detail").getByRole("link", { name: "查看原始 PDF ↗" }).count());
+    assert.ok(await page.locator("#case-detail").getByRole("link", { name: "查看来源原件 ↗" }).count());
     const pdf = await page.request.get(`/api/cases/${encodeURIComponent(record.case_id)}/source`);
     assert.equal(pdf.status(), 200);
     assert.equal((await pdf.body()).subarray(0, 4).toString(), "%PDF");

@@ -116,7 +116,7 @@ def test_batch_ingestion_rolls_back_files_and_registry(tmp_path, monkeypatch):
     )
     repository = CaseRepository(settings)
 
-    def fail():
+    def fail(*args):
         raise OSError("simulated manifest failure")
 
     monkeypatch.setattr(repository, "_refresh_manifest", fail)
@@ -127,6 +127,12 @@ def test_batch_ingestion_rolls_back_files_and_registry(tmp_path, monkeypatch):
         )
     assert settings.cases_path.read_text("utf-8") == ""
     assert settings.chunks_path.read_text("utf-8") == ""
+    root = settings.source_root("web_ingestion")
+    assert not (root / "cases.jsonl").exists()
+    assert not (root / "manifest.json").exists()
+    with sqlite3.connect(root / "evidence_registry.sqlite3") as con:
+        assert con.execute("SELECT COUNT(*) FROM units").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
     with sqlite3.connect(base / "evidence_registry.sqlite3") as con:
         assert con.execute("SELECT COUNT(*) FROM units").fetchone()[0] == 0
         assert con.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0

@@ -17,8 +17,8 @@ from domain.query_models import (
 from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
 
 TAXONOMY_VERSION = "query-scene-2.0"
-CLASSIFIER_VERSION = "query-scene-rule-llm-3.1"
-RULE_VERSION = "query-scene-rules-3.1"
+CLASSIFIER_VERSION = "query-scene-rule-llm-3.2"
+RULE_VERSION = "query-scene-rules-3.2"
 
 SCENE_NAMES = {
     QueryScene.ST1_POSTER_SMS_SOCIAL: "海报/短信/朋友圈短文案",
@@ -247,6 +247,38 @@ class RuleBasedSceneClassifier:
             evidence[rule.scene].append(f"{rule.description}（{len(matches)} 处）")
 
         self._add_structural_scores(text, context, scores, evidence)
+        # An explicit material heading identifies the carrier. Mentions of other
+        # carriers inside examples must not outvote it or trigger an API call.
+        heading = text.lstrip().splitlines()[0][:110]
+        heading_rules = (
+            (
+                QueryScene.ST1_POSTER_SMS_SOCIAL,
+                r"朋友圈|短信文案|海报文案|朋友圈/短信|朋友圈/客户群",
+            ),
+            (
+                QueryScene.ST2_LIVE_SHORT_VIDEO,
+                r"直播口播|直播间|短视频|口播脚本|直播口播话术",
+            ),
+            (QueryScene.ST3_PRODUCT_INTRO_DETAIL, r"产品详情页|产品介绍页|保险公估服务说明页"),
+            (QueryScene.ST4_MEETING_MATERIAL, r"客户答谢会|产品说明会|产说会宣讲材料"),
+            (
+                QueryScene.ST5_TRAINING_TELEMARKETING_CALLBACK,
+                r"培训转述|培训话术|培训材料|培训现场|培训课件|电销坐席|电销及回访|回访话术培训",
+            ),
+            (
+                QueryScene.ST6_PENALTY_BACKEND_FACT,
+                r"后台业务|后台核查|后台归档|后台记录|监管处罚文书|行政处罚决定书",
+            ),
+        )
+        explicit = [
+            (match.start(), scene)
+            for scene, pattern in heading_rules
+            if (match := re.search(pattern, heading)) and match.start() <= 18
+        ]
+        if explicit and len({scene for _, scene in explicit}) == 1:
+            _, heading_scene = min(explicit, key=lambda pair: pair[0])
+            scores[heading_scene] += 32
+            evidence[heading_scene].append("首行明确标识材料载体")
         total = sum(scores.values())
         candidates = [
             SceneRuleCandidate(

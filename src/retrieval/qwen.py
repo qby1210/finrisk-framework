@@ -9,10 +9,15 @@ from threading import RLock
 from time import perf_counter
 from typing import Any
 
-import httpx
 import numpy as np
 
-from retrieval.cloud import CloudRetrievalError, CloudSettings, _post_with_retry, _read_api_key
+from retrieval.cloud import (
+    CloudRetrievalError,
+    CloudSettings,
+    _post_with_retry,
+    _read_api_key,
+    create_cloud_http_client,
+)
 
 QUERY_INSTRUCTION = (
     "Given an insurance marketing or training statement, retrieve relevant enforcement "
@@ -41,9 +46,11 @@ class NativeQwenEmbeddingClient:
 
         signature = hashlib.sha256(json.dumps(self.binding, sort_keys=True).encode()).hexdigest()
         self.model_name = settings.embedding_model + "-native-" + signature[:16]
-        self._client = httpx.Client(
-            timeout=settings.timeout_seconds,
-            limits=httpx.Limits(max_connections=8, max_keepalive_connections=8),
+        self._client = create_cloud_http_client(
+            settings,
+            settings.rerank_base_url,
+            max_connections=8,
+            max_keepalive_connections=8,
         )
         self._cache: OrderedDict[str, list[float]] = OrderedDict()
         self._lock = RLock()

@@ -24,6 +24,8 @@
 ## 2. 案例知识库物理表
 
 主库 schema 沿用队员构建包，避免重建 15,620 个主体数据。
+原始库、`case_sources/official_crawl`、`case_sources/web_ingestion` 分开存储，
+由同一个 `CaseRepository` 联合读取；两个新增分区独立保存三份 JSONL、证据 SQLite 与 manifest。
 
 ### `cases.jsonl`
 
@@ -31,9 +33,10 @@
 
 | 字段 | 含义 |
 | --- | --- |
-| `case_id` | 主键；Web 新增为 `U` + 文件哈希前缀 |
+| `case_id` | 主键；新增为 `U` + 文件哈希前缀，多主体增加独立后缀 |
 | `file_id / source_sha256` | 来源文件身份 |
-| `case_origin` | 构建批次来源或 `web_ingestion` |
+| `case_origin` | 构建批次来源、`official_crawl` 或 `web_ingestion` |
+| `source_group` | 对外统一为 `original`、`official_crawl`、`web_ingestion` |
 | `case_title / party_name / penalty_doc_no` | 案例身份字段 |
 | `violation_behavior / penalty_content` | 违法事实和处罚内容 |
 | `regulator / penalty_date` | 处罚机关和日期 |
@@ -42,6 +45,7 @@
 | `retrieval_status` | `active` 或 `inactive` |
 | `evidence_status` | `verified` 或 `limited` |
 | `source_file / source_url` | 可追溯来源 |
+| `publish_date / collected_at / official_doc_id` | 官网发布日期、采集时间和文书标识 |
 | `quality_flags / review_status` | 自动化质量与复核状态 |
 | `data_version` | 数据版本 |
 
@@ -69,19 +73,20 @@
 ### 增量一致性
 
 新案例必须同时产生一个 cases 记录、至少一个 chunk、零到多个 expansion。仓库在同一锁内
-追加三表并刷新 manifest；失败按原字节长度回滚。三表都使用 `case_id` 关联，不建立第二套
-“用户案例库”。
+在目标分区追加三表并刷新 manifest；失败按原字节长度回滚。提交标记与写前日志支持进程中断恢复。
+三种来源使用同一 schema、构建器和检索接口，新增不改写原始分区。原始案例启停使用独立状态覆盖文件。
 
 ## 3. 案例 Web/API 模型
 
 - `CaseSummary`：列表和检索共用摘要；
 - `CaseDetail`：摘要 + 来源、相关方、法律依据、质量标记和证据切片；
 - `CaseListPage`：`items / total / page / page_size / total_pages`；
-- `CaseStatistics`：总数、原批次数、Web 新增数、启用数、标签数和数据版本；
+- `CaseStatistics`：总数、原始数、官网采集数、网页录入数、启用数、标签数和数据版本；
 - `CaseIngestionResult`：新案例详情、提取方式、是否使用 LLM、警告；
 - `MatchedCase`：案例 ID、违法事实、标签、0–1 展示分、命中文本和命中单元。
 
-`is_user_managed` 只表示 `case_origin=web_ingestion`，不是不同数据库。
+`is_user_managed` 表示官网采集或网页录入的新案例可在页面启停；`source_group` 表示存储来源。
+`GET /api/collection/status` 返回每日增量任务的日期边界、下次时间、待办、限额和索引状态。
 
 ## 4. Query 契约
 

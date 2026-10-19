@@ -97,7 +97,12 @@ class PoolRepository(CaseRepository):
 
 
 def source_hashes():
-    paths = [*list((ROOT / "src").rglob("*.py")), ROOT / "agent_runtime/runtime.mjs"]
+    paths = [
+        *list((ROOT / "src").rglob("*.py")),
+        ROOT / "agent_runtime/runtime.mjs",
+        ROOT / "data/risk/calibration/competition500.npz",
+        DATA / "manifest.json",
+    ]
     return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 
 
@@ -298,11 +303,13 @@ async def run_risk(mode, samples, settings, repository, retrieval, *, local=Fals
         if inner:
             await inner.aclose()
         if client:
-            save(OUT / f"{samples[0]['split']}_{name}_api.json", client.calls)
+            api_path = OUT / f"{samples[0]['split']}_{name}_api.json"
+            previous = json.loads(api_path.read_text("utf-8")) if api_path.exists() else []
+            save(api_path, [*previous, *client.calls])
     return completed
 
 
-async def run_retrieval(split, settings, repository, retrieval):
+async def run_retrieval(split, settings, repository, retrieval, *, providers=None, limit=0):
     reference_path = DATA / f"reference/qrels_{split}.jsonl"
     qrels = (
         {r["query_id"]: r["grades"] for r in read_rows(reference_path)}
@@ -310,8 +317,10 @@ async def run_retrieval(split, settings, repository, retrieval):
         else {}
     )
     samples = [r for r in read_rows(DATA / f"{split}.jsonl") if not qrels or r["query_id"] in qrels]
+    if limit:
+        samples = samples[:limit]
     reports = {}
-    for provider in ["none", "cloud", "deepseek"]:
+    for provider in providers or ["deepseek"]:
         path = OUT / f"retrieval_{split}_{provider}.json"
         rows = json.loads(path.read_text("utf-8")) if path.exists() else []
         have = {r["query_id"] for r in rows}
@@ -350,6 +359,11 @@ async def main():
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--mode", default="")
     parser.add_argument(
+        "--rerank-providers",
+        default="deepseek",
+        help="Comma-separated selected rerankers; avoids unrequested API comparisons",
+    )
+    parser.add_argument(
         "--query-ids", default="", help="Comma-separated IDs for an engineering replay"
     )
     args = parser.parse_args()
@@ -374,7 +388,12 @@ async def main():
             return
         if args.phase.startswith("retrieval-"):
             split = "development" if args.phase == "retrieval-dev" else "test"
-            await run_retrieval(split, settings, repository, retrieval)
+            providers = args.rerank_providers.split(",")
+            if not set(providers) <= {"none", "cloud", "deepseek"}:
+                raise ValueError("Unknown reranker")
+            await run_retrieval(
+                split, settings, repository, retrieval, providers=providers, limit=args.limit
+            )
             return
         gold = {r["query_id"]: r for r in read_rows(DATA / "reference/labels.jsonl")}
         split = "test" if args.phase == "test" else "development"

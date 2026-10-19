@@ -25,6 +25,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlparse
+from urllib.request import getproxies, proxy_bypass
 
 import httpx
 
@@ -49,6 +51,30 @@ class CloudSettings:
     timeout_seconds: float = 30.0
     max_retries: int = 2
     retry_base_seconds: float = 0.5
+
+
+def create_cloud_http_client(
+    settings: CloudSettings,
+    url: str,
+    *,
+    max_connections: int = 4,
+    max_keepalive_connections: int = 2,
+) -> httpx.Client:
+    """Honor the configured system proxy on Windows, as urllib/browser access does."""
+    override = os.getenv("FINRISK_CLOUD_PROXY", "").strip()
+    proxy = None
+    if override and override.lower() != "direct":
+        proxy = override
+    elif not override and not proxy_bypass(urlparse(url).hostname or ""):
+        proxy = getproxies().get(urlparse(url).scheme)
+    return httpx.Client(
+        timeout=httpx.Timeout(settings.timeout_seconds),
+        limits=httpx.Limits(
+            max_connections=max_connections, max_keepalive_connections=max_keepalive_connections
+        ),
+        proxy=proxy,
+        trust_env=override.lower() != "direct",
+    )
 
 
 class EmbeddingProvider(Protocol):
@@ -168,9 +194,11 @@ class DashScopeEmbeddingClient:
 
     def _ensure_client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(
-                timeout=httpx.Timeout(self._settings.timeout_seconds),
-                limits=httpx.Limits(max_connections=8, max_keepalive_connections=4),
+            self._client = create_cloud_http_client(
+                self._settings,
+                self._settings.embedding_base_url,
+                max_connections=8,
+                max_keepalive_connections=4,
             )
         return self._client
 
@@ -255,10 +283,7 @@ class DashScopeRerankClient:
 
     def _ensure_client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(
-                timeout=httpx.Timeout(self._settings.timeout_seconds),
-                limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
-            )
+            self._client = create_cloud_http_client(self._settings, self._settings.rerank_base_url)
         return self._client
 
     def close(self) -> None:

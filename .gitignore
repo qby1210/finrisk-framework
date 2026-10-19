@@ -11,6 +11,8 @@ node_modules/
 .cache/
 .tmp/
 outputs/local-preview/
+# Generated presentation PDFs and their intermediate sources stay local.
+output/
 
 # 原始采集缓存由增量工具在本地建立。
 data/raw/cases/*
@@ -39,4 +41,7 @@ release/
 # Real-API traces, local backups and intermediate annotations stay on this machine.
 outputs/competition_upgrade_20261019/
 outputs/label_optimization_20261019/
+outputs/crawl_integration_20261019/
+outputs/dataset_self_review_20261019/
+data/processed/case_sources/
 data/eval/competition500_v1/reference/drafts/

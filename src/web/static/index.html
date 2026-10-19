@@ -247,11 +247,12 @@
               <article><span>风险标签</span><strong>—</strong></article>
             </div>
             <section class="panel library-panel">
+              <div class="case-list-head"><span id="case-source-counts">原始知识库 — · 官网采集 — · 网页录入 —</span><span id="collection-status">每日更新 —</span></div>
               <form class="case-filters" id="case-filters">
                 <label class="search-field"><span>关键词</span><input id="case-search" type="search" placeholder="案号、机构、违法事实……" /></label>
                 <label><span>风险标签</span><input id="case-risk-tag" type="text" placeholder="如：销售误导" /></label>
                 <label><span>状态</span><select id="case-status"><option value="">全部</option><option value="active">启用</option><option value="inactive">已停用</option></select></label>
-                <label><span>来源</span><select id="case-origin"><option value="">全部</option><option value="web_ingestion">Web 新增</option></select></label>
+                <label><span>来源</span><select id="case-origin"><option value="">全部</option><option value="original">原始知识库</option><option value="official_crawl">官网采集</option><option value="web_ingestion">网页录入</option></select></label>
 <details class="advanced-filters">
                   <summary>组合条件：监管机构、处罚主体、机构类型和日期</summary>
                   <div>
@@ -271,7 +272,7 @@
           </section>
           <section class="view" id="evaluation-view">
             <header class="view-heading"><div><p class="eyebrow">效果验证</p><h1>风险识别与案例匹配</h1></div><p>500个真实案例 · 200条自建Query · 六类场景 · 27类风险标签</p></header>
-            <section class="panel"><div class="panel-heading"><div><h2>独立测试集</h2><p class="subtle-note">模型辅助标注 · 开发集选择配置，测试集报告效果</p></div><a class="quiet-button" href="/api/evaluation/report" target="_blank" rel="noopener">下载评测结果</a></div><div id="evaluation-content"><div class="inline-empty">正在读取评测结果……</div></div></section>
+            <section class="panel"><div class="panel-heading"><div><h2>200条效果测试</h2><p class="subtle-note">逐条复核 · 开发集调试，测试集报告结果</p></div><a class="quiet-button" href="/api/evaluation/report" target="_blank" rel="noopener">下载评测结果</a></div><div id="evaluation-content"><div class="inline-empty">正在读取评测结果……</div></div></section>
           </section>
         </main>
         <footer class="workspace-footer"><span>FinRisk · 保险营销合规工作台</span><span>原文可查，判断可复核。</span></footer>

@@ -27,6 +27,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TAXONOMY = ("承诺收益", "销售误导", "夸大收益")
 
 
+def test_cloud_clients_honor_system_proxy_and_explicit_direct(monkeypatch):
+    import retrieval.cloud as cloud
+
+    calls = []
+    monkeypatch.delenv("FINRISK_CLOUD_PROXY", raising=False)
+    monkeypatch.setattr(cloud, "getproxies", lambda: {"https": "http://127.0.0.1:7890"})
+    monkeypatch.setattr(cloud, "proxy_bypass", lambda host: False)
+    monkeypatch.setattr(cloud.httpx, "Client", lambda **kwargs: calls.append(kwargs))
+    cloud.create_cloud_http_client(cloud.CloudSettings(), "https://dashscope.aliyuncs.com/api/v1")
+    assert calls[-1]["proxy"] == "http://127.0.0.1:7890"
+    monkeypatch.setenv("FINRISK_CLOUD_PROXY", "direct")
+    cloud.create_cloud_http_client(cloud.CloudSettings(), "https://dashscope.aliyuncs.com/api/v1")
+    assert calls[-1]["proxy"] is None and calls[-1]["trust_env"] is False
+
+
 # --------------------------------------------------------------------------
 # 桩件
 # --------------------------------------------------------------------------

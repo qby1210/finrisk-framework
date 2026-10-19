@@ -6,12 +6,17 @@ import csv
 import json
 import math
 import os
+import re
 import sqlite3
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from hashlib import sha256
+from itertools import chain
 from pathlib import Path
 from threading import RLock
+from time import monotonic
+from typing import Any
+from uuid import uuid4
 
 from domain.knowledge_models import (
     CaseDetail,
@@ -22,6 +27,7 @@ from domain.knowledge_models import (
 )
 from retrieval import RetrievalDocument
 from settings import AppSettings
+from storage.file_lock import FileLock
 
 
 class CaseNotFoundError(KeyError):
@@ -33,12 +39,7 @@ class DuplicateCaseError(RuntimeError):
 
 
 class CaseRepository:
-    """直接管理案例主库的三份 JSONL。
-
-    当前知识库记录不会在启动时重新生成。新 PDF 处理完成后按相同 schema 增量写入
-    cases、case_chunks 和 case_expansions，并刷新 manifest。停用案例只修改
-    retrieval_status，原始 PDF、记录和证据均保留，可随时恢复。
-    """
+    """联合读取原始库、官网采集和网页录入；新增只写对应的独立分区。"""
 
     def __init__(self, settings: AppSettings) -> None:
         self.settings = settings
@@ -53,22 +54,110 @@ class CaseRepository:
         self._latest_crawl_at: str | None = None
         self._latest_penalty_date: str | None = None
         self._revision = 0
-        self.reload()
+        self._loaded_stamp: tuple[tuple[int, int] | None, ...] = ()
+        self._last_check = 0.0
+        with FileLock(settings.incremental_cases_root / ".write.lock"):
+            for origin in ("official_crawl", "web_ingestion"):
+                self._recover_write(settings.source_root(origin))
+            self.reload()
+
+    def _mark_index_pending(self) -> None:
+        _write_json_atomic(
+            self.settings.incremental_cases_root / "index_state.json",
+            {"status": "pending", "updated_at": datetime.now(UTC).isoformat()},
+        )
+
+    def _recover_write(self, root: Path) -> None:
+        journal = root / ".pending_write.json"
+        if not journal.is_file():
+            return
+        entry = json.loads(journal.read_text("utf-8"))
+        committed = False
+        registry = root / "evidence_registry.sqlite3"
+        if registry.is_file():
+            with sqlite3.connect(registry) as connection:
+                exists = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='ingestion_commits'"
+                ).fetchone()
+                committed = bool(
+                    exists
+                    and connection.execute(
+                        "SELECT 1 FROM ingestion_commits WHERE id=?", (entry["id"],)
+                    ).fetchone()
+                )
+        if committed:
+            self._refresh_manifest(root)
+            self._mark_index_pending()
+        else:
+            for name, snapshot in entry["files"].items():
+                if name not in {"cases.jsonl", "case_chunks.jsonl", "case_expansions.jsonl"}:
+                    raise ValueError("入库恢复日志包含未知文件")
+                _restore_file(root / name, existed=snapshot[0], size=snapshot[1])
+            manifest = root / "manifest.json"
+            if entry["manifest"] is None:
+                manifest.unlink(missing_ok=True)
+            else:
+                manifest.write_text(entry["manifest"], encoding="utf-8")
+        journal.unlink()
 
     @property
     def revision(self) -> int:
+        self._ensure_fresh()
         return self._revision
+
+    def _stamp(self) -> tuple[tuple[int, int] | None, ...]:
+        paths = [
+            self.settings.source_root(origin) / "manifest.json"
+            for origin in ("official_crawl", "web_ingestion")
+        ]
+        paths.append(self.settings.incremental_cases_root / "status_overrides.json")
+        return tuple(
+            (path.stat().st_mtime_ns, path.stat().st_size) if path.is_file() else None
+            for path in paths
+        )
+
+    def _ensure_fresh(self) -> None:
+        now = monotonic()
+        if now - self._last_check >= 1:
+            self._last_check = now
+            if self._stamp() != self._loaded_stamp:
+                self.reload()
 
     @property
     def risk_tags(self) -> tuple[str, ...]:
         return tuple(sorted(self._risk_tags))
 
+    def _paths(self, filename: str) -> tuple[Path, ...]:
+        base = (
+            self.settings.chunks_path
+            if filename == "case_chunks.jsonl"
+            else self.settings.case_data_dir / filename
+        )
+        return (
+            base,
+            *(
+                self.settings.source_root(origin) / filename
+                for origin in ("official_crawl", "web_ingestion")
+            ),
+        )
+
     def reload(self) -> None:
+        with self._lock:
+            self._read_snapshot()
+
+    def _read_snapshot(self) -> None:
         if not self.settings.cases_path.is_file():
             raise FileNotFoundError(f"案例主表不存在: {self.settings.cases_path}")
         records = {
-            str(record["case_id"]): record for record in _read_jsonl(self.settings.cases_path)
+            str(record["case_id"]): record
+            for path in self._paths("cases.jsonl")
+            for record in _read_jsonl(path)
         }
+        overrides = self.settings.incremental_cases_root / "status_overrides.json"
+        if overrides.is_file():
+            for cid, status in json.loads(overrides.read_text("utf-8")).items():
+                if cid in records:
+                    records[cid] = {**records[cid], "retrieval_status": status}
         with self._lock:
             self._records = records
             self._cases_by_file = {}
@@ -96,6 +185,7 @@ class CaseRepository:
             self._latest_crawl_at = manifest_meta.get("latest_crawl_at")
             self._latest_penalty_date = manifest_meta.get("latest_penalty_date")
             self._revision += 1
+            self._loaded_stamp = self._stamp()
 
     def list_cases(
         self,
@@ -114,6 +204,7 @@ class CaseRepository:
     ) -> CaseListPage:
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("分页参数不合法")
+        self._ensure_fresh()
         normalized_query = (query or "").strip().casefold()
         records = self._listing_records()
         if normalized_query:
@@ -125,7 +216,11 @@ class CaseRepository:
         if status:
             records = [record for record in records if record.get("retrieval_status") == status]
         if origin:
-            records = [record for record in records if record.get("case_origin") == origin]
+            records = [
+                record
+                for record in records
+                if _source_group(record) == origin or record.get("case_origin") == origin
+            ]
         if regulator:
             needle = regulator.strip().casefold()
             records = [
@@ -179,6 +274,7 @@ class CaseRepository:
         )
 
     def get_case(self, case_id: str) -> CaseDetail:
+        self._ensure_fresh()
         record = self._record(case_id)
         return self._to_detail(record, self._case_chunks(case_id))
 
@@ -188,10 +284,12 @@ class CaseRepository:
     def summaries(self) -> tuple[CaseSummary, ...]:
         """一次性生成检索所需摘要，避免通过分页反复排序主表。"""
 
+        self._ensure_fresh()
         records = tuple(self._records.values())
         return tuple(self._to_summary(record) for record in records)
 
     def statistics(self) -> CaseStatistics:
+        self._ensure_fresh()
         records = self._listing_records()
         subject_count = len(self._records)
         if self._document_listing:
@@ -210,12 +308,23 @@ class CaseRepository:
             ]
         return CaseStatistics(
             total_cases=len(records),
-            base_cases=sum(1 for record in records if record.get("case_origin") != "web_ingestion"),
-            user_cases=sum(1 for record in records if record.get("case_origin") == "web_ingestion"),
+            base_cases=sum(_source_group(record) == "original" for record in records),
+            crawled_cases=sum(_source_group(record) == "official_crawl" for record in records),
+            user_cases=sum(_source_group(record) == "web_ingestion" for record in records),
             active_cases=sum(1 for record in records if record.get("retrieval_status") == "active"),
             risk_tag_count=len(self._risk_tags),
             data_version=self._data_version,
-            latest_crawl_at=self._latest_crawl_at,
+            latest_crawl_at=max(
+                [
+                    self._latest_crawl_at or "",
+                    *(
+                        str(record.get("collected_at") or "")
+                        for record in records
+                        if _source_group(record) == "official_crawl"
+                    ),
+                ]
+            )
+            or None,
             latest_penalty_date=self._latest_penalty_date,
             subject_case_count=subject_count,
             listing_unit="document" if self._document_listing else "case",
@@ -248,44 +357,89 @@ class CaseRepository:
         artifacts: list[tuple[dict[str, object], list[dict[str, object]], list[dict[str, object]]]],
         *,
         source_text: str | None = None,
+        source_texts: dict[str, str] | None = None,
+        origin: str | None = None,
     ) -> list[CaseDetail]:
+        if source_text is not None and source_texts is not None:
+            raise ValueError("单源全文和多源全文不能同时提供")
         records = [item[0] for item in artifacts]
+        origin = origin or (str(records[0].get("case_origin")) if records else "web_ingestion")
+        if origin not in {"official_crawl", "web_ingestion"}:
+            origin = "web_ingestion"
+        for record in records:
+            record["case_origin"] = origin
+            record["source_group"] = origin
         ids = [str(r.get("case_id") or "") for r in records]
         if not ids or any(not cid for cid in ids) or len(set(ids)) != len(ids):
             raise ValueError("案例ID为空或重复")
-        with self._lock:
-            for case_id in ids:
-                if case_id in self._records:
-                    raise DuplicateCaseError(case_id)
+        with self._lock, FileLock(self.settings.incremental_cases_root / ".write.lock"):
+            for group in ("official_crawl", "web_ingestion"):
+                self._recover_write(self.settings.source_root(group))
+            self.reload()
+            existing_keys = {_business_key(r) for r in self._records.values()} - {None}
+            existing_hashes = {r.get("source_content_sha256") for r in self._records.values()} - {
+                None,
+                "",
+            }
+            artifacts = [
+                item
+                for item in artifacts
+                if str(item[0]["case_id"]) not in self._records
+                and _business_key(item[0]) not in existing_keys
+                and item[0].get("source_content_sha256") not in existing_hashes
+            ]
+            if not artifacts:
+                raise DuplicateCaseError(ids[0])
+            records = [item[0] for item in artifacts]
+            root = self.settings.source_root(origin)
+            root.mkdir(parents=True, exist_ok=True)
             paths = (
-                self.settings.chunks_path,
-                self.settings.expansions_path,
-                self.settings.cases_path,
+                root / "case_chunks.jsonl",
+                root / "case_expansions.jsonl",
+                root / "cases.jsonl",
             )
+            manifest_path = root / "manifest.json"
             snapshots = {
                 path: (path.is_file(), path.stat().st_size if path.is_file() else 0)
                 for path in paths
             }
-            manifest_original = (
-                self.settings.manifest_path.read_bytes()
-                if self.settings.manifest_path.is_file()
-                else None
+            manifest_original = manifest_path.read_bytes() if manifest_path.is_file() else None
+            transaction_id = uuid4().hex
+            journal = root / ".pending_write.json"
+            _write_json_atomic(
+                journal,
+                {
+                    "id": transaction_id,
+                    "files": {p.name: value for p, value in snapshots.items()},
+                    "manifest": manifest_original.decode("utf-8") if manifest_original else None,
+                },
             )
             connection = None
             try:
-                registry = self.settings.case_kb_root / "evidence_registry.sqlite3"
-                if source_text is not None and registry.is_file():
-                    connection = sqlite3.connect(registry)
-                    source_hash = sha256(source_text.encode()).hexdigest()
+                registry = root / "evidence_registry.sqlite3"
+                connection = sqlite3.connect(registry)
+                connection.executescript(
+                    "CREATE TABLE IF NOT EXISTS sources("
+                    "file_id TEXT PRIMARY KEY,text TEXT,sha256 TEXT);"
+                    "CREATE TABLE IF NOT EXISTS units(id TEXT PRIMARY KEY,file_id TEXT,data TEXT);"
+                    "CREATE TABLE IF NOT EXISTS evidence("
+                    "id TEXT PRIMARY KEY,file_id TEXT,data TEXT);"
+                    "CREATE TABLE IF NOT EXISTS ingestion_commits(id TEXT PRIMARY KEY);"
+                )
+                if source_text is not None or source_texts is not None:
                     for record, chunks, _ in artifacts:
-                        fid = str(record["file_id"])
+                        fid = str(record.get("file_id") or record["case_id"])
+                        text = source_texts[fid] if source_texts is not None else source_text
+                        if not text:
+                            raise ValueError(f"缺少来源全文: {fid}")
+                        source_hash = sha256(text.encode()).hexdigest()
                         connection.execute(
                             "INSERT OR REPLACE INTO sources VALUES (?,?,?)",
-                            (fid, source_text, source_hash),
+                            (fid, text, source_hash),
                         )
                         for chunk in chunks:
                             quote = str(chunk.get("chunk_text") or "")
-                            start = source_text.find(quote)
+                            start = text.find(quote)
                             if not quote or start < 0:
                                 continue
                             unit = {
@@ -298,29 +452,32 @@ class CaseRepository:
                                 "INSERT INTO units VALUES (?,?,?)",
                                 (chunk["chunk_id"], fid, json.dumps(unit, ensure_ascii=False)),
                             )
+                _append_jsonl(paths[0], [c for _, chunks, _ in artifacts for c in chunks])
                 _append_jsonl(
-                    self.settings.chunks_path, [c for _, chunks, _ in artifacts for c in chunks]
-                )
-                _append_jsonl(
-                    self.settings.expansions_path,
+                    paths[1],
                     [e for _, _, expansions in artifacts for e in expansions],
                 )
-                _append_jsonl(self.settings.cases_path, records)
-                self._refresh_manifest()
-                if connection is not None:
-                    connection.commit()
+                _append_jsonl(paths[2], records)
+                self._refresh_manifest(root)
+                connection.execute("INSERT INTO ingestion_commits VALUES (?)", (transaction_id,))
+                connection.commit()
             except Exception:
                 if connection is not None:
                     connection.rollback()
                 for path, (existed, size) in snapshots.items():
                     _restore_file(path, existed=existed, size=size)
                 if manifest_original is not None:
-                    self.settings.manifest_path.write_bytes(manifest_original)
-                self.settings.manifest_path.with_suffix(".json.tmp").unlink(missing_ok=True)
+                    manifest_path.write_bytes(manifest_original)
+                else:
+                    manifest_path.unlink(missing_ok=True)
+                manifest_path.with_suffix(".json.tmp").unlink(missing_ok=True)
+                journal.unlink(missing_ok=True)
                 raise
             finally:
                 if connection is not None:
                     connection.close()
+            self._mark_index_pending()
+            journal.unlink(missing_ok=True)
             for record, chunks, _ in artifacts:
                 case_id = str(record["case_id"])
                 self._records[case_id] = dict(record)
@@ -329,12 +486,14 @@ class CaseRepository:
                 self._chunks_by_case[case_id] = [dict(chunk) for chunk in chunks]
                 self._risk_tags.update(str(tag) for tag in _as_list(record.get("risk_tags")) if tag)
             self._revision += 1
+            self._loaded_stamp = self._stamp()
         return [self._to_detail(record, chunks) for record, chunks, _ in artifacts]
 
     def set_retrieval_status(self, case_id: str, *, active: bool) -> CaseDetail:
         """停用或恢复案例，不删除任何记录与原始材料。"""
 
-        with self._lock:
+        with self._lock, FileLock(self.settings.incremental_cases_root / ".write.lock"):
+            self.reload()
             record = dict(self._record(case_id))
             record["retrieval_status"] = "active" if active else "inactive"
             record["updated_at"] = datetime.now(UTC).date().isoformat()
@@ -343,10 +502,23 @@ class CaseRepository:
             record["quality_flags"] = list(dict.fromkeys([*flags, marker]))
             updated = dict(self._records)
             updated[case_id] = record
-            _write_jsonl_atomic(self.settings.cases_path, updated.values())
+            group = _source_group(record)
+            if group == "original":
+                path = self.settings.incremental_cases_root / "status_overrides.json"
+                overrides = json.loads(path.read_text("utf-8")) if path.is_file() else {}
+                overrides[case_id] = record["retrieval_status"]
+                temporary = path.with_suffix(".json.tmp")
+                temporary.write_text(json.dumps(overrides, ensure_ascii=False), encoding="utf-8")
+                os.replace(temporary, path)
+            else:
+                root = self.settings.source_root(group)
+                _write_jsonl_atomic(
+                    root / "cases.jsonl", (r for r in updated.values() if _source_group(r) == group)
+                )
+                self._refresh_manifest(root)
             self._records = updated
             self._revision += 1
-            self._refresh_manifest()
+            self._loaded_stamp = self._stamp()
         return self.get_case(case_id)
 
     def iter_retrieval_documents(self) -> Iterator[RetrievalDocument]:
@@ -355,7 +527,9 @@ class CaseRepository:
             for case_id, record in {**self._records, **self._source_records}.items()
             if record.get("retrieval_status") == "active"
         }
-        for chunk in _read_jsonl(self.settings.chunks_path):
+        for chunk in chain.from_iterable(
+            _read_jsonl(path) for path in self._paths("case_chunks.jsonl")
+        ):
             case_id = str(chunk.get("case_id") or "")
             linked_ids = tuple(
                 str(value)
@@ -380,7 +554,9 @@ class CaseRepository:
                     source="case_chunk",
                     weight=_as_float(chunk.get("retrieval_weight"), 1.0),
                 )
-        for expansion in _read_jsonl(self.settings.expansions_path):
+        for expansion in chain.from_iterable(
+            _read_jsonl(path) for path in self._paths("case_expansions.jsonl")
+        ):
             if not expansion.get("retrieval_enabled", False):
                 continue
             case_ids = tuple(
@@ -445,7 +621,8 @@ class CaseRepository:
             return cached
         chunks = [
             chunk
-            for chunk in _read_jsonl(self.settings.chunks_path)
+            for path in self._paths("case_chunks.jsonl")
+            for chunk in _read_jsonl(path)
             if chunk.get("case_id") == case_id or case_id in _as_list(chunk.get("case_ids"))
         ]
         self._chunks_by_case[case_id] = chunks
@@ -469,9 +646,10 @@ class CaseRepository:
             risk_tags=[str(value) for value in _as_list(record.get("risk_tags"))],
             risk_domains=[str(value) for value in _as_list(record.get("risk_domains"))],
             case_origin=str(record.get("case_origin") or "unknown"),
+            source_group=_source_group(record),
             retrieval_status=str(record.get("retrieval_status") or "inactive"),
             evidence_status=str(record.get("evidence_status") or "limited"),
-            is_user_managed=record.get("case_origin") == "web_ingestion",
+            is_user_managed=_source_group(record) != "original",
             document_id=fid,
             subject_case_count=max(1, len(self._cases_by_file.get(fid, []))),
         )
@@ -520,32 +698,33 @@ class CaseRepository:
             ],
         )
 
-    def _refresh_manifest(self) -> None:
-        if not self.settings.manifest_path.is_file():
-            return
-        manifest = json.loads(self.settings.manifest_path.read_text(encoding="utf-8"))
-        if not isinstance(manifest, dict):
-            return
+    def _refresh_manifest(self, root: Path) -> None:
+        path_manifest = root / "manifest.json"
+        manifest: dict[str, Any] = (
+            json.loads(path_manifest.read_text(encoding="utf-8"))
+            if path_manifest.is_file()
+            else {"source_group": root.name}
+        )
         counts = manifest.setdefault("counts", {})
         files = manifest.setdefault("files", {})
         for key, path in (
-            ("cases", self.settings.cases_path),
-            ("case_chunks", self.settings.chunks_path),
-            ("case_expansions", self.settings.expansions_path),
+            ("cases", root / "cases.jsonl"),
+            ("case_chunks", root / "case_chunks.jsonl"),
+            ("case_expansions", root / "case_expansions.jsonl"),
         ):
             rows = _line_count(path)
             counts[key.removeprefix("case_") if key != "cases" else key] = rows
             files[key] = {
-                "path": path.relative_to(self.settings.case_kb_root).as_posix(),
+                "path": path.relative_to(root).as_posix(),
                 "bytes": path.stat().st_size,
                 "sha256": _sha256_file(path),
                 "rows": rows,
             }
         manifest["locally_extended"] = True
         manifest["updated_at"] = datetime.now(UTC).isoformat()
-        temporary = self.settings.manifest_path.with_suffix(".json.tmp")
+        temporary = path_manifest.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(temporary, self.settings.manifest_path)
+        os.replace(temporary, path_manifest)
 
 
 def _read_jsonl(path: Path) -> Iterator[dict[str, object]]:
@@ -580,6 +759,13 @@ def _write_jsonl_atomic(path: Path, records: Iterable[dict[str, object]]) -> Non
     os.replace(temporary, path)
 
 
+def _write_json_atomic(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, path)
+
+
 def _read_manifest_meta(path: Path) -> dict[str, str]:
     if not path.is_file():
         return {}
@@ -609,7 +795,18 @@ def _record_contains(record: dict[str, object], normalized_query: str) -> bool:
 
 def _case_sort_key(record: dict[str, object]) -> tuple[int, str]:
     case_id = str(record.get("case_id") or "")
-    return (0 if record.get("case_origin") == "web_ingestion" else 1, case_id)
+    return (0 if _source_group(record) != "original" else 1, case_id)
+
+
+def _source_group(record: dict[str, object]) -> str:
+    origin = str(record.get("case_origin") or "")
+    return origin if origin in {"official_crawl", "web_ingestion"} else "original"
+
+
+def _business_key(record: dict[str, object]) -> tuple[str, str] | None:
+    document = re.sub(r"\s+", "", str(record.get("penalty_doc_no") or ""))
+    party = re.sub(r"\s+", "", str(record.get("party_name") or ""))
+    return (document, party) if document and party else None
 
 
 def _optional_string(value: object) -> str | None:

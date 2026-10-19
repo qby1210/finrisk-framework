@@ -783,7 +783,9 @@ class CaseRetrievalService:
             if self._evidence_reader is None:
                 from application.evidence_service import KnowledgeEvidenceService
 
-                self._evidence_reader = KnowledgeEvidenceService(Path(root))
+                self._evidence_reader = KnowledgeEvidenceService(
+                    Path(root), getattr(self.settings, "additional_evidence_databases", ())
+                )
             source_span = metadata.get("source_span") or {}
             grounding = metadata.get("grounding_ids") or []
             identifier = (

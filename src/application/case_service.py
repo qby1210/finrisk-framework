@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 from datetime import date
+from hashlib import sha256
 from pathlib import Path
 
 from domain.common import FilePurpose
@@ -43,33 +45,73 @@ class CaseManagementService:
             data_version=data_version,
         )
 
-    async def ingest_file(self, file_path: Path, *, original_filename: str) -> CaseIngestionResult:
+    async def ingest_file(
+        self,
+        file_path: Path,
+        *,
+        original_filename: str,
+        origin: str = "web_ingestion",
+        source_metadata: dict[str, object] | None = None,
+        structured_cases: list[dict[str, object]] | None = None,
+    ) -> CaseIngestionResult:
+        self.settings.source_root(origin)  # Validate before extraction or filesystem changes.
+        original_filename = Path(original_filename).name
+        source_metadata = source_metadata or {}
         extraction = await asyncio.to_thread(
             self.extractor.extract,
             file_path,
             FilePurpose.CASE,
-            source_uri=f"upload://{original_filename}",
-            metadata={"ingestion_channel": "web"},
+            source_uri=str(source_metadata.get("source_url") or f"upload://{original_filename}"),
+            metadata={"ingestion_channel": origin},
         )
         case_id = f"U{extraction.checksum_sha256[:15].upper()}"
-        destination = self.settings.raw_case_upload_dir / f"{case_id}_{original_filename}"
+        raw_dir = (
+            self.settings.collection_root / "ingested"
+            if origin == "official_crawl"
+            else self.settings.raw_case_upload_dir
+        )
+        destination = raw_dir / f"{case_id}_{original_filename}"
         try:
             logical_path = destination.relative_to(self.settings.project_root).as_posix()
         except ValueError:
             logical_path = f"upload://{destination.name}"
-        artifacts = await self.builder.build_many(extraction, source_file=logical_path)
+        if structured_cases is None:
+            artifacts = await self.builder.build_many(extraction, source_file=logical_path)
+        else:
+            artifacts = [
+                await self.builder.build_imported(
+                    extraction,
+                    source_file=logical_path,
+                    payload=payload,
+                    atomic_index=index,
+                )
+                for index, payload in enumerate(structured_cases, 1)
+            ]
         if not artifacts:
             raise ValueError("未识别到保险相关处罚案例")
+        source_metadata.setdefault(
+            "source_content_sha256",
+            sha256(re.sub(r"\s+", "", extraction.full_text).encode()).hexdigest(),
+        )
+        for artifact in artifacts:
+            artifact.record.update(source_metadata)
+            artifact.record.update(
+                case_origin=origin, source_group=origin, raw_source_file=logical_path
+            )
         destination.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(shutil.copy2, file_path, destination)
+        existed = destination.is_file()
+        if not existed:
+            await asyncio.to_thread(shutil.copy2, file_path, destination)
         try:
             details = await asyncio.to_thread(
                 self.repository.add_cases,
                 [(a.record, a.chunks, a.expansions) for a in artifacts],
                 source_text=extraction.full_text,
+                origin=origin,
             )
         except Exception:
-            destination.unlink(missing_ok=True)
+            if not existed:
+                destination.unlink(missing_ok=True)
             raise
         return CaseIngestionResult(
             case=details[0],

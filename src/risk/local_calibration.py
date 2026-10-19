@@ -43,7 +43,7 @@ class LocalRiskCalibration:
             self.examples = (
                 [json.loads(str(v)) for v in data["examples"]] if "examples" in data else []
             )
-        self.version = "char-ngram-development400-v1"
+        self.version = "char-ngram-development400-reviewed-v2"
 
     def predict(self, text: str) -> tuple[float, list[tuple[str, float]]]:
         logits = features(text) @ self.weights

@@ -32,7 +32,8 @@ def test_separate_affirmative_after_prohibition_is_still_found():
 
 def test_private_premium_account_is_management_candidate_not_fake_expense():
     result = detector().detect("保费直接打我私人账户，佣金也进个人卡。")
-    assert "代理人管理不到位" in result.risk_labels
+    assert "其他" in result.risk_labels
+    assert "虚列费用套取资金" not in result.risk_labels
     assert any(e.source == "rule_regex" for e in result.evidence)
 
 

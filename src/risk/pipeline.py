@@ -36,6 +36,7 @@ from domain.risk_models import (
 )
 from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
 from query.context import build_retrieval_query, build_sentence_contexts
+from query.review_frame import carry_document_frame
 from risk.agent_tools import QueryToolBudget, RiskEvidenceTools
 from risk.calibration import RiskScorer, RiskThresholder
 from risk.context import detect_with_context
@@ -44,7 +45,7 @@ from risk.longtext import screen_document
 from risk.mechanism_guards import apply_mechanism_guard
 from risk.prompt_context import compact_review_payload
 from risk.recommendations import remediation_suggestions
-from risk.taxonomy import expand_related_labels, taxonomy_prompt
+from risk.taxonomy import taxonomy_prompt
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +94,10 @@ class _LLMItem(BaseModel):
 
 def _current_fact_gaps(text: str) -> list[str]:
     if not re.search(r"无法判断|无法确定|不能确定|不清楚|暂不能认定|尚不能认定|尚待核实", text):
+        return []
+    if re.search(r"反面|教学|错误示例|(?:先不|暂不|不得)(?:录制|发布|上线)|合规提醒", text):
+        return []
+    if not re.search(r"未(?:附|提供|见)|缺少|尚无|没有.{0,10}(?:依据|材料|凭证|合同|记录)", text):
         return []
     return [
         name
@@ -193,6 +198,7 @@ class RiskAssessmentPipeline:
                 )
             )
         }
+        contexts = carry_document_frame(query, contexts)
         rule_contexts = contexts
         if self.adaptive:
             contexts = self._carry_scope_constraints(query, contexts)
@@ -299,6 +305,11 @@ class RiskAssessmentPipeline:
         )
 
     def _local_direct(self, rules: RuleDetectionResult, context: RiskSentenceContext) -> bool:
+        if rules.strong_signal and re.search(
+            r"是否|无法判断|不能判断|尚待核实|未提供|真实性.{0,8}待核|一旦执行|如果执行",
+            context.query_text,
+        ):
+            return False
         if self.adaptive and self.llm_client is not None and len(rules.risk_labels) > 1:
             return False  # A strong binary signal does not settle all related label boundaries.
         if self.adaptive and self.evidence_service is not None:
@@ -587,6 +598,11 @@ class RiskAssessmentPipeline:
             "context.source_sentences，不能来自同批另一段或另一个产品。"
             "逐标签核对成立条件，只输出当前事实直接支持的标签，不按上下位、近义或关联关系扩展。"
             "培训材料和处罚事实中已发生的违规同样要识别；后续整改不抹去已记录的违规事实。"
+            "先确定本次待审对象和叙述立场：全文明确的第三方反例、被否决提案、定稿前纠错"
+            "和如实历史处罚披露，不作为当前违规；本机构已核查事实、仍执行的错误要求仍须识别。"
+            "全文立场引文仅解释目标句，不能把别段的动作和产品条件移到目标句。"
+            "已明确成立的事实不因金额、责任人、覆盖范围或其他机制材料尚待核实而变成全部未知。"
+            "正常流程没附额外凭证不自动成为信息不足；具体主张依赖缺失的资格、合同或版本才待核。"
             "无明显风险时risk_score应低于0.20且标签为空。"
             "带有明确条件、风险提示、合同限定、个人经历限定或正常流程描述时不要误判。"
             "尤其注意：材料引用风险词来禁止该行为，不等于材料正在实施该行为。"
@@ -1429,9 +1445,9 @@ class RiskAssessmentPipeline:
         ]
         if llm_output:
             return list(dict.fromkeys(candidates))
-        return expand_related_labels(
-            candidates, self._taxonomy_set, limit=27 if self.adaptive else 10
-        )
+        # Rules contribute only their own observed labels. Related labels require
+        # separate facts, and an independent 'other' risk may coexist with them.
+        return list(dict.fromkeys(label for label in candidates if label in self._taxonomy_set))
 
     async def _retrieve_eligible(
         self,
