@@ -1,10 +1,12 @@
 # FinRisk 保险营销合规工作台
 
 当前版本使用 Pi Agent、DeepSeek 风险复核及 Qwen 全量文档/query 向量。
-案例管理只展示新库的 **9,639 份处罚文书**，详情保留 **15,620 个主体案例、27 类标签**。
+基础知识库包含 **9,639 份处罚文书、15,620 个主体案例、27 类标签**。
+2026-10-22 部署快照另含 366 份官网增量文书，合计 **10,005 份文书、15,986 个主体案例**。
 原始 10,000 份 PDF 位于 `raw_pdfs/`。旧案例库与一次性实验文件已清理。
 GitHub分发源码、新评测集和冻结结果；密钥、原始PDF和全量索引保存在本地。
-本轮未部署远程服务器。
+已部署到 yuyunCloud：[打开工作台](http://156.239.2.239/)。保留 80 端口转发至本机 8000，
+部署、验证及回滚方式见[服务器部署记录](docs/deployment_yuyuncloud_20261022.md)。
 
 ## 启动与检查
 
@@ -86,7 +88,7 @@ Linux 对应 `install.sh`、`start.sh`、`verify.sh`。运行需要 Python 3.11+
 | `reports/competition500/` | 当前复核参考下的真实API指标、逐条预测、逐标签FP/FN及数据指纹 |
 | `outputs/` | 本地API过程文件、构建收据和运行日志，不进入Git |
 | `docs/` | 当前架构、契约、数据口径和效果报告 |
-| `deploy/`、`scripts/package_submission.ps1` | 可选部署配置和本地交付打包，本轮未执行部署 |
+| `deploy/`、`scripts/package_submission.ps1` | 部署配置和本地交付打包；雨云使用 `finrisk-yuyuncloud.service` 和 `nginx-finrisk-yuyuncloud.conf` |
 
 当前评测入口（调用真实API，支持断点续跑）：
 

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from copy import copy
 from datetime import date
 from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated, Literal
@@ -455,14 +456,18 @@ async def case_source(case_id: str, service: CaseDependency) -> FileResponse:
         settings.raw_case_upload_dir.resolve(),
         settings.collection_root.resolve(),
     )
-    path = (settings.project_root / (item.raw_source_file or "")).resolve()
+    source = settings.project_root / (item.raw_source_file or "").replace("\\", "/")
+    # Linux limits each filename to 255 bytes, including multibyte Chinese names.
+    # Deployment may retain such originals under a deterministic short alias.
+    alias = source.with_name(sha256(source.name.encode("utf-8")).hexdigest() + source.suffix)
+    path = (alias if alias.is_file() else source).resolve()
     if not any(path.is_relative_to(root) for root in roots) or not path.is_file():
         raise HTTPException(status_code=404, detail="暂无已绑定的来源原件")
     is_pdf = path.suffix.lower() == ".pdf"
     return FileResponse(
         path,
         media_type="application/pdf" if is_pdf else "application/octet-stream",
-        filename=path.name,
+        filename=source.name,
         content_disposition_type="inline" if is_pdf else "attachment",
     )
 
