@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -252,6 +252,7 @@ class FakeCases:
     def __init__(self, *, fail=False):
         self.fail = fail
         self.calls = []
+        self.repository = SimpleNamespace(count_collected_documents=lambda on, *, zone: 0)
 
     async def ingest_file(self, path, **kwargs):
         self.calls.append(kwargs)
@@ -262,6 +263,23 @@ class FakeCases:
 
 def at(day, hour=5, minute=0):
     return datetime(2026, 10, day, hour, minute, tzinfo=SHANGHAI)
+
+
+def test_status_reports_beijing_date_and_persisted_daily_count(tmp_path):
+    cases = FakeCases()
+    calls = []
+
+    def count(on, *, zone):
+        calls.append((on, zone))
+        return 7
+
+    cases.repository.count_collected_documents = count
+    service = CollectionService(settings(tmp_path), cases)
+    value = service.status(datetime(2026, 10, 22, 16, 5, tzinfo=UTC))
+    assert value["today"] == "2026-10-23"
+    assert value["today_crawled_cases"] == 7
+    assert calls == [(date(2026, 10, 23), SHANGHAI)]
+    assert not service.state_path.exists()
 
 
 def test_activation_date_is_immutable_and_first_day_makes_no_requests(tmp_path):

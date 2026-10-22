@@ -123,6 +123,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 loadHealth();
+renderWorkspaceSummary(null);
+loadCollectionStatus();
+setInterval(loadCollectionStatus, 60_000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadCollectionStatus();
+});
 
 function switchView(view) {
   state.activeView = view;
@@ -658,15 +664,36 @@ async function loadStatistics() {
   }
 }
 
+function renderWorkspaceSummary(value) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (type) => parts.find((item) => item.type === type).value;
+  const fallbackDate = `${part("year")}-${part("month")}-${part("day")}`;
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(value?.today || "") ? value.today : fallbackDate;
+  const [year, month, day] = today.split("-");
+  const dateNode = el("#workspace-date");
+  dateNode.dateTime = today;
+  dateNode.textContent = `${year}年${month}月${day}日`;
+  const count = value?.today_crawled_cases;
+  const available = Number.isInteger(count) && count >= 0;
+  el("#today-crawled-count").textContent = available ? count.toLocaleString("zh-CN") : "—";
+  el(".workspace-summary").title = available
+    ? "北京时间今日成功入库的官网案例，按文书去重；不含网页手动录入"
+    : "今日采集数暂不可用，正在等待服务更新";
+}
+
 async function loadCollectionStatus() {
   try {
     const value = await api("/api/collection/status");
+    renderWorkspaceSummary(value);
     const node = el("#collection-status");
     const statusNames = { running: "采集中", success: "已更新", partial: "待续更新", paused: "官网访问暂停", interrupted: "待下次续跑", waiting: "等待新案例", collected: "已采集" };
     const next = value.next_run_at ? new Date(value.next_run_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "";
     node.textContent = value.enabled ? `每日 ${value.daily_time} · ${statusNames[value.status] || "已启用"}${next ? ` · 下次 ${next}` : ""}` : "每日更新未启用";
     node.title = [value.start_date ? `起始日期：${value.start_date}` : "", `待处理 ${(value.pending_parts || 0) + (value.pending_documents || 0)} 项`, `索引：${value.index_status}`].filter(Boolean).join("；");
   } catch {
+    renderWorkspaceSummary(null);
     el("#collection-status").textContent = "采集状态暂不可用";
   }
 }

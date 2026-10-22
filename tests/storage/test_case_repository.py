@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from application.collection_service import SHANGHAI
 from application.retrieval_service import CaseRetrievalService, CaseSearchFilters
 from settings import AppSettings
 from storage.case_repository import CaseRepository, DuplicateCaseError
@@ -91,6 +92,41 @@ def test_repository_reads_and_retrieves_existing_case(tmp_path: Path) -> None:
     aligned = service.search("保证收益百分之十", top_k=3, risk_tags={"承诺收益"})
     assert aligned[0].matched_risk_tags == ["承诺收益"]
     assert service.search("保证收益百分之十", top_k=3, risk_tags={"赠送利益"}) == []
+
+
+def test_daily_collected_count_deduplicates_documents_and_uses_local_date(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    entries = [
+        ("A1", "A", "2026-10-22T16:15:00+00:00"),
+        ("A2", "A", "2026-10-22T16:15:00+00:00"),
+        ("B", "B", "2026-10-23T15:59:59+00:00"),
+        ("C", "C", "2026-10-23T16:00:00+00:00"),
+        ("D", "D", "2026-10-22T23:59:59+08:00"),
+        ("E", "E", ""),
+        ("F", "F", "invalid"),
+        ("G", "G", "2026-10-23T08:00:00"),
+    ]
+    records = [
+        {"case_id": cid, "file_id": fid, "case_origin": "official_crawl", "collected_at": stamp}
+        for cid, fid, stamp in entries
+    ]
+    official_path = settings.source_root("official_crawl") / "cases.jsonl"
+    _write_jsonl(official_path, records)
+    _write_jsonl(
+        settings.source_root("web_ingestion") / "cases.jsonl",
+        [{"case_id": "manual", "case_origin": "web_ingestion", "collected_at": entries[0][2]}],
+    )
+    repository = CaseRepository(settings)
+    assert repository.count_collected_documents(date(2026, 10, 23), zone=SHANGHAI) == 3
+    assert repository.count_collected_documents(date(2026, 10, 24), zone=SHANGHAI) == 1
+    restarted = CaseRepository(settings)
+    assert restarted.count_collected_documents(date(2026, 10, 23), zone=SHANGHAI) == 3
+    records.append(
+        {"case_id": "H", "case_origin": "official_crawl", "collected_at": "2026-10-23T10:00+08:00"}
+    )
+    _write_jsonl(official_path, records)
+    restarted.reload()
+    assert restarted.count_collected_documents(date(2026, 10, 23), zone=SHANGHAI) == 4
 
 
 def test_batch_sources_keep_each_documents_own_literal_evidence(tmp_path: Path) -> None:

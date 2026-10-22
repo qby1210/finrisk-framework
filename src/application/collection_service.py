@@ -100,6 +100,10 @@ class CollectionService:
                 "start_date": state.get("start_date"),
                 "daily_time": self.settings.collection_daily_time,
                 "timezone": "Asia/Shanghai",
+                "today": now.date().isoformat(),
+                "today_crawled_cases": self.case_service.repository.count_collected_documents(
+                    now.date(), zone=SHANGHAI
+                ),
                 "next_run_at": self._next_run(state, now).isoformat()
                 if self.settings.collection_enabled
                 else None,

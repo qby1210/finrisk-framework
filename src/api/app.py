@@ -254,7 +254,7 @@ def get_collection_service() -> CollectionService:
 
 @app.get("/api/collection/status")
 async def collection_status() -> dict[str, object]:
-    return get_collection_service().status()
+    return await asyncio.to_thread(get_collection_service().status)
 
 
 AnalysisDependency = Annotated[QueryAnalysisService, Depends(get_analysis_service)]

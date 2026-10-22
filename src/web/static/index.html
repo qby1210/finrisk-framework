@@ -9,7 +9,7 @@
     />
     <title>FinRisk · 保险营销合规工作台</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=brand-red-20261015" />
-    <link rel="stylesheet" href="/static/styles.css?v=source-spans-2-brand-red" />
+    <link rel="stylesheet" href="/static/styles.css?v=collection-header-20261023" />
     <link rel="preload" href="/static/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
@@ -33,8 +33,9 @@
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 17V9h3v8M11 17V4h3v13M16 17v-6h3v6"/></svg><span>效果评测</span>
           </button>
         </nav>
-        <div class="sidebar-note">
-          <span class="workspace-badge">本地工作区</span>
+        <div class="sidebar-note workspace-summary" aria-label="今日采集概况">
+          <time id="workspace-date">—</time>
+          <span>今日已爬取 <strong id="today-crawled-count" aria-live="polite">—</strong> 个案例</span>
         </div>
       </aside>
 
@@ -286,6 +287,6 @@
     </aside>
     <div class="toast" id="toast" role="status"></div>
     <script src="/static/source-map.js?v=source-spans-2" defer></script>
-    <script src="/static/app.js?v=competition500-20261019" defer></script>
+    <script src="/static/app.js?v=collection-header-20261023" defer></script>
   </body>
 </html>

@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from domain.query_models import QueryScene
 from domain.risk_models import RiskLevel
 from risk.calibration import RiskScorer, RiskThresholder
@@ -13,6 +15,46 @@ from risk.pipeline import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "❤点击头像发送暗号【旅行险年卡】，告诉我你的目的地，快速获取1v1保障方案！",
+        "发送口令【年卡】即可获取保障方案。",
+        "发送关键词旅行险年卡，查看产品资料。",
+        "推送旅行险年卡介绍和投保说明。",
+        "递送保险卡和保单资料。",
+    ],
+)
+def test_contact_instructions_are_not_gift_inducement(text: str) -> None:
+    detector = RuleRiskDetector(
+        PROJECT_ROOT / "data" / "risk" / "keyword_db" / "risk_keyword_db.json"
+    )
+    result = detector.detect(text)
+    assert "赠送利益" not in result.risk_labels
+    assert not any("gift_inducement" in item.description for item in result.evidence)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "今天投保送购物卡。",
+        "购买年卡赠送免费体检。",
+        "购买保险奖励现金红包。",
+        "投保后发送红包。",
+        "投保成功发放加油卡。",
+        "发送暗号【旅行险年卡】，投保再送购物卡。",
+        "发送口令后投保送红包。",
+    ],
+)
+def test_real_gifts_remain_detectable_after_contact_instructions(text: str) -> None:
+    detector = RuleRiskDetector(
+        PROJECT_ROOT / "data" / "risk" / "keyword_db" / "risk_keyword_db.json"
+    )
+    result = detector.detect(text)
+    assert "赠送利益" in result.risk_labels
+    assert any("gift_inducement" in item.description for item in result.evidence)
 
 
 def test_real_keyword_database_detects_guaranteed_return() -> None:

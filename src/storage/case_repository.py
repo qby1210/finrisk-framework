@@ -9,7 +9,7 @@ import os
 import re
 import sqlite3
 from collections.abc import Iterable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, tzinfo
 from hashlib import sha256
 from itertools import chain
 from pathlib import Path
@@ -329,6 +329,26 @@ class CaseRepository:
             subject_case_count=subject_count,
             listing_unit="document" if self._document_listing else "case",
         )
+
+    def count_collected_documents(self, on: date, *, zone: tzinfo) -> int:
+        """Count persisted official documents by their collection date, across subjects."""
+        self._ensure_fresh()
+        documents: set[str] = set()
+        with self._lock:
+            for record in self._records.values():
+                if _source_group(record) != "official_crawl":
+                    continue
+                try:
+                    collected_at = datetime.fromisoformat(str(record.get("collected_at") or ""))
+                except ValueError:
+                    continue
+                if collected_at.tzinfo is None:
+                    collected_at = collected_at.replace(tzinfo=zone)
+                if collected_at.astimezone(zone).date() == on:
+                    documents.add(
+                        str(record.get("file_id") or record.get("source_file") or record["case_id"])
+                    )
+        return len(documents)
 
     @property
     def _document_listing(self) -> bool:
