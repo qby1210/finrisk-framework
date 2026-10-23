@@ -17,8 +17,8 @@ from domain.query_models import (
 from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
 
 TAXONOMY_VERSION = "query-scene-2.0"
-CLASSIFIER_VERSION = "query-scene-rule-llm-3.2"
-RULE_VERSION = "query-scene-rules-3.2"
+CLASSIFIER_VERSION = "query-scene-rule-llm-3.3"
+RULE_VERSION = "query-scene-rules-3.3"
 
 SCENE_NAMES = {
     QueryScene.ST1_POSTER_SMS_SOCIAL: "海报/短信/朋友圈短文案",
@@ -30,7 +30,7 @@ SCENE_NAMES = {
 }
 
 _SCENE_DEFINITIONS = """
-ST1_poster_sms_social：海报、营销短信、朋友圈或社交平台的短文案，通常篇幅短、单向传播、带行动号召。
+ST1_poster_sms_social：海报、营销短信、朋友圈或社交平台文案，包括小红书种草、求助、理赔经历和多行图文。表情符号、宝子/姐妹称呼、翻图、点击头像等是社交线索；含产品参数或较长篇幅仍按社交载体分类。
 ST2_live_short_video：直播、短视频脚本、主播或口播话术，常含镜头、主播、直播间、小黄车等表达。
 ST3_product_intro_detail：产品介绍、详情页、产品说明内容，重点描述产品要素、功能、期限、费用、申赎和风险等级；若文本只陈述保险或产品功能且没有其他渠道载体标识，归入本类。
 ST4_meeting_material：产品说明会、客户答谢会等线下或线上会议材料，常含议程、主持、致辞、来宾和会议安排。
@@ -81,7 +81,7 @@ class _LLMSceneOutput(BaseModel):
 _RULES = (
     _Rule(
         QueryScene.ST1_POSTER_SMS_SOCIAL,
-        re.compile(r"(?:海报|朋友圈|营销短信|短信文案|短文案|社交平台文案|回复TD退订)"),
+        re.compile(r"(?:海报|朋友圈|小红书|营销短信|短信文案|短文案|社交平台文案|回复TD退订)"),
         7.0,
         "出现海报、短信或社交短文案的明确标识",
     ),
@@ -154,7 +154,8 @@ _RULES = (
     _Rule(
         QueryScene.ST6_PENALTY_BACKEND_FACT,
         re.compile(
-            r"(?:行政处罚决定书|监管处罚|处罚决定|罚字|金融监管总局|银保监|人民银行.{0,12}处罚)"
+            r"(?:行政处罚决定书|监管处罚|处罚决定|罚字|"
+            r"(?:金融监管总局|银保监|人民银行).{0,16}(?:处罚|决定书|罚款))"
         ),
         8.0,
         "出现监管处罚文书的明确标识",
@@ -253,7 +254,7 @@ class RuleBasedSceneClassifier:
         heading_rules = (
             (
                 QueryScene.ST1_POSTER_SMS_SOCIAL,
-                r"朋友圈|短信文案|海报文案|朋友圈/短信|朋友圈/客户群",
+                r"小红书文案|朋友圈|短信文案|海报文案|朋友圈/短信|朋友圈/客户群",
             ),
             (
                 QueryScene.ST2_LIVE_SHORT_VIDEO,
@@ -304,6 +305,18 @@ class RuleBasedSceneClassifier:
         evidence: dict[QueryScene, list[str]],
     ) -> None:
         compact_length = len("".join(text.split()))
+        social_voice = re.search(
+            r"宝子|姐妹|宝妈|谁懂|看过来|夸累了|种草|安利|卷王|内卷|闭眼入|闭眼冲|"
+            r"翻图|点击头像|发送暗号|二编|求解答|家人们",
+            text,
+        )
+        social_bullets = len(re.findall(r"(?m)^\s*[✅⭐👉🔥✔💡❤💁🔒🎁]", text))
+        live_carrier = re.search(r"直播间|主播|镜头|小黄车|口播|短视频脚本", text)
+        if social_voice and social_bullets >= 3 and not live_carrier:
+            scores[QueryScene.ST1_POSTER_SMS_SOCIAL] += 9.0
+            evidence[QueryScene.ST1_POSTER_SMS_SOCIAL].append(
+                "社交称呼或种草表达与多行表情列表共同出现"
+            )
         if context and context.media_type and context.media_type.startswith("image/"):
             if compact_length <= 600:
                 scores[QueryScene.ST1_POSTER_SMS_SOCIAL] += 3.0

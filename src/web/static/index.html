@@ -43,7 +43,7 @@
         <header class="topbar">
           <div class="breadcrumb"><span>工作台</span><span aria-hidden="true">/</span><strong id="current-view-label">材料审查</strong></div>
           <div class="health" id="health-state">
-            <span class="health-dot"></span><span id="health-text">正在连接本地服务</span>
+            <span class="health-dot"></span><span id="health-text">正在连接服务</span>
           </div>
         </header>
 
@@ -129,7 +129,7 @@
               </div>
               <div id="risk-content" hidden>
                 <div class="results-heading">
-                  <div><h2>审查结果</h2><p class="subtle-note">结论、语境与原文放在一起核对</p></div>
+                  <div><h2>审查结果</h2><p class="subtle-note">风险结论与原文依据</p></div>
                   <div class="result-actions">
                     <button class="quiet-button" id="copy-risk-result" type="button">复制结果摘要</button>
                     <button class="quiet-button" id="export-submission" type="button">导出比赛 JSON</button>
@@ -157,7 +157,7 @@
                       <span><i class="swatch level-high"></i>高风险</span>
                     </div>
                     <div class="source-highlight" id="source-highlight" aria-label="原文与风险所属句"></div>
-                    <p class="source-selection" id="source-selection" role="status" aria-live="polite">底色对应逐句风险等级；蓝框定位当前判断，蓝色下划线定位引用证据。</p>
+                    <p class="source-selection" id="source-selection" role="status" aria-live="polite">底色：风险等级 · 蓝框：当前句 · 下划线：引用证据</p>
                   </section>
                   <section class="result-subpanel top-cases-panel">
                     <div class="subpanel-heading"><h3>相关处罚案例</h3><small>查看匹配理由与原文</small></div>
@@ -166,7 +166,7 @@
                 </div>
 
                 <div class="sentence-toolbar">
-                  <div><h3>逐句判断</h3><span>按完整表达与说话轮次划分，结合上下文审查</span></div>
+                  <div><h3>逐句判断</h3><span>查看理由、证据与修改建议</span></div>
                   <label>显示
                     <select id="risk-filter">
                       <option value="all">全部语句</option>
@@ -217,7 +217,7 @@
                   <span class="selected-file" id="case-file-name">尚未选择文件</span>
                 </label>
                 <div class="action-row">
-                  <p>相同文件哈希不会重复录入；失败时不会留下半条记录。</p>
+                  <p>自动识别重复文件。</p>
                   <button class="primary-button" id="ingest-button" type="button">
                     <span>抽取并录入</span><i class="spinner"></i>
                   </button>
@@ -287,6 +287,6 @@
     </aside>
     <div class="toast" id="toast" role="status"></div>
     <script src="/static/source-map.js?v=source-spans-2" defer></script>
-    <script src="/static/app.js?v=collection-header-20261023" defer></script>
+    <script src="/static/app.js?v=social-copy-20261023" defer></script>
   </body>
 </html>

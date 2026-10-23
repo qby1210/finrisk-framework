@@ -35,12 +35,13 @@ from domain.risk_models import (
     SentenceRiskAssessment,
 )
 from llm import ChatMessage, JsonChatRequest, LLMClient, LLMProviderError
-from query.context import build_retrieval_query, build_sentence_contexts
+from query.context import build_retrieval_query, build_sentence_contexts, is_affirmative_answer
 from query.review_frame import carry_document_frame
 from risk.agent_tools import QueryToolBudget, RiskEvidenceTools
 from risk.calibration import RiskScorer, RiskThresholder
 from risk.context import detect_with_context
 from risk.detection import RuleDetectionResult, RuleRiskDetector
+from risk.label_guards import social_label_supported
 from risk.longtext import screen_document
 from risk.mechanism_guards import apply_mechanism_guard
 from risk.prompt_context import compact_review_payload
@@ -605,13 +606,35 @@ class RiskAssessmentPipeline:
             "正常流程没附额外凭证不自动成为信息不足；具体主张依赖缺失的资格、合同或版本才待核。"
             "无明显风险时risk_score应低于0.20且标签为空。"
             "带有明确条件、风险提示、合同限定、个人经历限定或正常流程描述时不要误判。"
+            "社交文案中个人已获赔、投保成功、求助、性价比感受不是普遍赔付承诺；"
+            "须区分‘我这次赔了’与‘任何病都赔、无需任何条件’。"
+            "免健康告知、不记名雇主险、保证续保、0免赔、责任内100%赔付、家庭单折扣"
+            "均可能是正常产品设计；不能凭缺少合同附件认定虚假、隐瞒或偏离备案费率，"
+            "不能把不记名承保等同伪造客户信息，把免健告等同教唆不如实告知。"
+            "只有目标句确有特定条款矛盾且依据不足时才列具体待核事实；普通产品说明不凭空待核。"
+            "夸大收益只涉及投资回报，不能用于保额、报销比例、省保费、理赔款或医疗保障效果。"
+            "家庭费率折扣、会员权益、合同服务不自动等于赠送利益或回扣；"
+            "明确‘下单送礼包、投保赠门诊保额’仍须识别赠送利益，未证明合同外不得另加合同外利益。"
+            "健康告知宽松、有机会承保、责任内限定不自动构成弱化风险提示或隐瞒重要信息；"
+            "这两标签需要主动淡化风险或隐瞒条款的具体动作，不能从文案未列全条款推定。"
+            "正常推荐、抓紧购买、适用年龄提醒不能单独证明不当施压；"
+            "‘最、最高、100%’须看修饰对象，合同限额、比例、个人评价不自动绝对化。"
+            "‘AI不会骗人、AI推荐就是最好保障’要核虚假背书和绝对化断言，不是贬低竞品；"
+            "国家背书、全都能赔等明确宣传主张仍应按自身内容核查，文末免责不抵消。"
+            "医疗险声称可用现金价值自动垫交保费并保证不断保，须核对该产品是否具有现金价值"
+            "及垫交条款，不能直接套用其他险种功能；缺少依据应给具体待核事实。"
             "尤其注意：材料引用风险词来禁止该行为，不等于材料正在实施该行为。"
             "例如‘不得承诺收益、不能把演示当保证、客户拒绝后停止联系、必须完整披露’"
             "均属于合规要求，应判低于0.20且标签为空。相反，‘无需介绍免责、先投保后看条款、"
             "不区分保证和非保证、由家属代签’属于明确风险。"
             "结果对象字段为："
             '{"items":[{"sentence_id":"...","risk_score":0.0,'
-            '"risk_labels":[],"evidence":[],"reasoning":"简短中文理由"}]}。\n'
+            '"decision_state":"risk|no_clear_risk|insufficient_information",'
+            '"risk_labels":[],"candidate_labels":[],"missing_facts":[],'
+            '"evidence":[],"reasoning":"简短中文理由"}]}。'
+            "明确风险填risk；正常内容填no_clear_risk；具体主张的必要依据缺失填"
+            "insufficient_information，risk_labels留空、candidate_labels填写待核标签、"
+            "missing_facts列出所需事实；不能把未核实直接写成虚假事实。\n"
             "允许的27类标签及定义：\n"
             f"{taxonomy_prompt(self.taxonomy, self.taxonomy_descriptions)}"
         )
@@ -1103,6 +1126,49 @@ class RiskAssessmentPipeline:
                     "checked_mechanism_ids": checked_ids,
                 }
             )
+            if source_item.sentence.scene == QueryScene.ST1_POSTER_SMS_SOCIAL:
+                output = outputs[item.sentence_id]
+                guard_text = (
+                    build_retrieval_query(source_item.context)
+                    if is_affirmative_answer(source_item.sentence.text)
+                    else source_item.sentence.text
+                )
+
+                def supports(label: str) -> bool:
+                    return social_label_supported(label, guard_text)
+
+                guarded_labels = [label for label in output.risk_labels if supports(label)]
+                guarded_extra = [
+                    extra for extra in output.label_assessments if supports(str(extra["label"]))
+                ]
+                guarded_mechanisms = [
+                    mechanism.model_copy(
+                        update={
+                            "risk_labels": [
+                                label for label in mechanism.risk_labels if supports(label)
+                            ],
+                            "decision_state": "no_clear_risk"
+                            if mechanism.decision_state == "risk"
+                            and mechanism.risk_labels
+                            and not any(supports(label) for label in mechanism.risk_labels)
+                            else mechanism.decision_state,
+                        }
+                    )
+                    for mechanism in output.mechanism_assessments
+                ]
+                removed_all = bool(output.risk_labels) and not guarded_labels
+                outputs[item.sentence_id] = output.model_copy(
+                    update={
+                        "risk_labels": guarded_labels,
+                        "label_assessments": guarded_extra,
+                        "mechanism_assessments": guarded_mechanisms,
+                        **({
+                            "risk_score": min(output.risk_score, 0.19),
+                            "decision_state": "no_clear_risk",
+                            "reasoning": "本句未满足候选标签的必要事实；保留产品限定与原文。",
+                        } if removed_all and not output.missing_facts else {}),
+                    }
+                )
         return outputs, response.agent_trace
 
     def _finalize(

@@ -21,7 +21,7 @@ from query.context import SPEAKER_NAMES_PATTERN, build_sentence_contexts
 
 _STRUCTURAL_BOUNDARY = re.compile(
     r"(?:\r?\n[ \t]*\r?\n+)"
-    r"|(?:\r?\n(?=[ \t]*(?:[·•●▪✅⭐👏👉🔥✔📢🙋🌈🏆#]"
+    r"|(?:\r?\n(?=[ \t]*(?:[·•●▪✅⭐👏👉🔥✔📢🙋🌈🏆❤✨🔸💁💡🎁💔🏠🔒#]"
     r"|[-*＊][ \t]*|\d+[.、])))"
     rf"|(?:\r?\n(?=[ \t]*(?:{SPEAKER_NAMES_PATTERN})\s*[:：]))"
     r"|(?:\r?\n(?=[ \t]*(?:【(?:产品|方案)|(?:产品|方案)\s*"

@@ -193,11 +193,11 @@ async function loadHealth() {
     el("#query-rerank").options[0].textContent = `推荐 · ${rerankNames[data.retrieval?.rerank_provider] || "当前配置"}`;
     el("#query-timing").options[0].textContent = `推荐 · ${timingNames[data.retrieval?.timing] || "当前配置"}`;
     const mode = !data.llm_model ? "本地规则模式"
-      : runtime?.available ? `Pi Agent · ${data.llm_model}` : "Agent 依赖未就绪，审查将提示降级";
+      : runtime?.available ? `Pi Agent · ${data.llm_model}` : "Agent 未就绪 · 规则模式";
     el("#health-state").title = `${mode} · 数据版本 ${data.data_version || "—"}`;
   } catch (error) {
     el("#health-state").classList.add("is-error");
-    el("#health-text").textContent = "本地服务连接失败";
+    el("#health-text").textContent = "服务连接失败";
   }
 }
 
@@ -268,7 +268,7 @@ function renderRiskResult() {
       <span>整体风险</span><strong>${escapeHtml(summary.overall_level_name)}</strong>
       <small>${escapeHtml(summary.action)}</small>
     </article>
-    <article class="summary-card"><span>风险关注分</span><strong>${formatScore(summary.overall_score)}</strong><small>范围 0–1；信息不足时不代表风险已成立</small></article>
+    <article class="summary-card"><span>风险关注分</span><strong>${formatScore(summary.overall_score)}</strong><small>评分范围 0–1</small></article>
     <article class="summary-card"><span>需关注语句</span><strong>${summary.risky_sentence_count} / ${summary.sentence_count}</strong><small>共 ${summary.retrieval_sentence_count} 句检索类案</small></article>
   `;
   el("#review-status").value = "confirmed";
@@ -292,7 +292,7 @@ const timing = result.stage_timings_ms || {};
   const runs = summary.agent_runs || [];
   el("#agent-trace-note").textContent = runs.length
     ? `Pi Agent ${runs[0].version} · ${runs.length} 次语义审查 · ${runs.reduce((n, run) => n + run.turns, 0)} 轮 · ${runs.reduce((n, run) => n + run.tool_calls, 0)} 次工具调用 · ${runs.reduce((n, run) => n + run.tool_failures, 0)} 次提交校验失败`
-    : "本次未取得 Agent 语义复核结果；请查看判断来源与提示。";
+    : "本次无语义复核结果";
   const candidates = classification.rule_candidates.filter((item) => item.score > 0).slice(0, 4);
   el("#classification-candidates").innerHTML = candidates.length
     ? candidates.map((item, index) => `
@@ -390,12 +390,12 @@ function renderSourceHighlight() {
       return `<span class="source-sentence level-${escapeHtml(part.level)} ${part.selected ? "is-selected" : ""} ${part.cited ? "is-cited" : ""}" data-sentence-target="${escapeHtml(part.id)}" data-label="${part.label}" role="button" tabindex="0" aria-label="${escapeHtml(description)}，查看对应判断" aria-pressed="${part.selected}" title="${escapeHtml(description)}">${content}</span>`;
     }).join("");
     if (!view.selected) {
-      note.textContent = "底色对应逐句风险等级；蓝框定位当前判断，蓝色下划线定位引用证据。";
+      note.textContent = "底色：风险等级 · 蓝框：当前句 · 下划线：引用证据";
     } else {
       const selected = view.selected;
       const citation = view.cited.id !== selected.id
-        ? `；引用 ${view.cited.label} 的原文（该句自身：${view.cited.levelName}）。引用不会改变该句的风险等级。`
-        : "。底色为本句风险等级，蓝框仅表示当前选中。";
+        ? `；引用 ${view.cited.label}（${view.cited.levelName}）`
+        : "";
       note.innerHTML = `<strong>当前判断 ${selected.label} · ${escapeHtml(selected.levelName)} · ${formatScore(selected.score)}</strong>${escapeHtml(citation)}${selected.needsReview ? " 语义仍待复核。" : ""}`;
     }
   } catch (error) {
@@ -417,10 +417,10 @@ function renderTopCases() {
     </button>
   `).join("") : `<div class="inline-empty compact">${escapeHtml(
     state.riskResult.risk_assessments.some(item => item.retrieval_status === "unavailable")
-      ? "本次类案检索暂不可用。请独立核对风险与原文。"
+      ? "类案检索暂不可用"
       : state.riskResult.risk_summary.retrieval_sentence_count
         ? "暂无相似案例。"
-        : "本次未触发类案检索。请结合逐句结论与复核提示查看。"
+        : "本次无需检索类案"
   )}</div>`;
 }
 
@@ -537,9 +537,9 @@ function exportRiskReport() {
     <tr><td>${index + 1}</td><td>${escapeHtml(item.case_id)}<br>${escapeHtml(item.penalty_doc_no || "")}</td><td>${escapeHtml(item.party_name || item.case_title || "—")}</td><td>${escapeHtml(item.matched_risk_tags.join("、") || item.risk_tags.join("、"))}</td><td>${formatScore(item.score)}</td><td>${escapeHtml(item.match_reason || "相似事实匹配")}<p>${escapeHtml(item.penalty_content || "")}</p><small>${escapeHtml(item.regulator || "")}</small></td><td>${escapeHtml(item.file_id || item.matched_source)}<p>${escapeHtml(item.matched_text.slice(0,280))}</p><small>${(item.source_spans || []).map(s=>`${s.start}–${s.end}`).join("，")}</small></td></tr>
   `).join("");
   const retrievalNote = result.risk_assessments.some(item => item.retrieval_status === "unavailable")
-    ? "部分类案检索暂不可用，请查看逐句状态。"
+    ? "部分类案检索暂不可用"
     : summary.retrieval_sentence_count ? "暂无相似案例。"
-      : "本次未触发类案检索。请结合逐句结论与复核提示查看。";
+      : "本次无需检索类案";
   const warnings = summary.warnings.map(warning => `<p>${escapeHtml(warning)}</p>`).join("");
   const runs = summary.agent_runs || [];
   const trace = runs.length ? `Pi Agent ${escapeHtml(runs[0].version)} · ${runs.length} 次审查 · ${runs.reduce((n, run) => n + run.turns, 0)} 轮 · ${runs.reduce((n, run) => n + run.tool_calls, 0)} 次工具调用` : "本次未取得 Agent 语义复核结果";
@@ -953,7 +953,7 @@ function formatScore(value) {
 function retrievalDescription(item) {
   const status = item.retrieval_status || (item.retrieval_performed
     ? item.matched_cases.length ? "candidates" : "no_sufficient_match" : "not_requested");
-  if (status === "unavailable") return "类案检索暂不可用，请独立核对本句风险与原文。";
+  if (status === "unavailable") return "类案检索暂不可用。";
   if (status === "not_requested") return "本句未触发类案检索。";
   if (status === "no_sufficient_match") return "暂无相似案例。";
   return `匹配 ${item.matched_cases.length} 条相关案例。`;
