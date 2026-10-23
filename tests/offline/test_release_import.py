@@ -5,6 +5,7 @@ import hashlib
 import json
 import zipfile
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -167,7 +168,7 @@ def test_prestructured_ingestion_never_calls_model_and_stays_in_official_partiti
     result = asyncio.run(
         service.ingest_file(
             path,
-            original_filename="source.txt",
+            original_filename="保险公开文书" * 30 + ".txt",
             origin="official_crawl",
             structured_cases=[payload],
             source_metadata={"source_url": validate_source(group())},
@@ -180,6 +181,7 @@ def test_prestructured_ingestion_never_calls_model_and_stays_in_official_partiti
     assert "rule_fallback" not in result.case.quality_flags
     assert (base / "data/cases.jsonl").read_text("utf-8") == ""
     assert repository.statistics().crawled_cases == 1
+    assert len(Path(result.case.raw_source_file).name) < 40
     with pytest.raises(DuplicateCaseError):
         asyncio.run(
             service.ingest_file(

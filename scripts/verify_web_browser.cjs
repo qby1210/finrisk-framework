@@ -90,7 +90,7 @@ async function main() {
     await page.locator(`#case-list [data-open-case="${record.case_id}"]`).first().click();
     await page.locator("#case-detail").getByText("机构类型", { exact: true }).waitFor();
     assert.ok(await page.locator("#case-detail").getByText("主体关联", { exact: true }).count());
-    assert.ok(await page.locator("#case-detail").getByRole("link", { name: "查看来源原件 ↗" }).count());
+    assert.ok(await page.locator("#case-detail").getByRole("link", { name: "打开原文 PDF ↗" }).count());
     const pdf = await page.request.get(`/api/cases/${encodeURIComponent(record.case_id)}/source`);
     assert.equal(pdf.status(), 200);
     assert.equal((await pdf.body()).subarray(0, 4).toString(), "%PDF");

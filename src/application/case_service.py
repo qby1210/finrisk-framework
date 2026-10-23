@@ -17,6 +17,7 @@ from offline.case_ingestion import IncrementalCaseBuilder, load_risk_domain_mapp
 from risk.detection import RuleRiskDetector
 from settings import AppSettings
 from storage.case_repository import CaseRepository
+from storage.source_files import SourceFiles
 
 
 class CaseManagementService:
@@ -34,6 +35,7 @@ class CaseManagementService:
         self.settings = settings
         self.repository = repository
         self.extractor = extractor or FileExtractor()
+        self.source_files = SourceFiles(settings)
         mapping_path = settings.case_kb_root / "dictionary" / "risk_domain_mapping.json"
         mapping = load_risk_domain_mapping(str(mapping_path))
         data_version = repository.statistics().data_version or "case_kb_incremental_v1"
@@ -64,13 +66,14 @@ class CaseManagementService:
             source_uri=str(source_metadata.get("source_url") or f"upload://{original_filename}"),
             metadata={"ingestion_channel": origin},
         )
+        extraction = extraction.model_copy(update={"source_filename": original_filename})
         case_id = f"U{extraction.checksum_sha256[:15].upper()}"
         raw_dir = (
             self.settings.collection_root / "ingested"
             if origin == "official_crawl"
             else self.settings.raw_case_upload_dir
         )
-        destination = raw_dir / f"{case_id}_{original_filename}"
+        destination = raw_dir / f"{case_id}{file_path.suffix.lower()}"
         try:
             logical_path = destination.relative_to(self.settings.project_root).as_posix()
         except ValueError:
@@ -151,10 +154,24 @@ class CaseManagementService:
         )
 
     def get_case(self, case_id: str) -> CaseDetail:
-        return self.repository.get_case(case_id)
+        item = self.repository.get_case(case_id)
+        path = self.source_files.resolve(item)
+        if path is None:
+            return item
+        return item.model_copy(
+            update={
+                "raw_source_file": (
+                    path.relative_to(self.settings.project_root).as_posix()
+                    if path.is_relative_to(self.settings.project_root)
+                    else str(path)
+                ),
+                "original_pdf_available": path.suffix.lower() == ".pdf",
+            }
+        )
 
     def set_active(self, case_id: str, *, active: bool) -> CaseDetail:
-        return self.repository.set_retrieval_status(case_id, active=active)
+        self.repository.set_retrieval_status(case_id, active=active)
+        return self.get_case(case_id)
 
     def statistics(self) -> CaseStatistics:
         return self.repository.statistics()

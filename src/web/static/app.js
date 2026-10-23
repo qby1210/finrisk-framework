@@ -830,6 +830,10 @@ function renderCaseDetail(item) {
     <span class="drawer-case-id">${escapeHtml(item.case_id)}</span>
     <h2>${escapeHtml(item.case_title || item.penalty_doc_no || "未命名案例")}</h2>
     <div class="tag-row">${item.risk_tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>
+    <div class="detail-section">
+      ${item.original_pdf_available ? `<a class="quiet-button" data-original-pdf href="/api/cases/${encodeURIComponent(item.case_id)}/source" target="_blank" rel="noopener">打开原文 PDF ↗</a>` : '<button class="quiet-button" type="button" disabled>暂无原文 PDF</button>'}
+      ${item.source_url && /^https?:\/\//i.test(item.source_url) ? `<a class="quiet-button" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener">查看来源网页 ↗</a>` : ""}
+    </div>
     <dl class="case-fields">
       <div><dt>当事人</dt><dd>${escapeHtml(item.party_name || "—")}</dd></div>
       <div><dt>处罚文号</dt><dd>${escapeHtml(item.penalty_doc_no || "—")}</dd></div>
@@ -845,7 +849,7 @@ function renderCaseDetail(item) {
     ${item.case_summary ? `<section class="detail-section"><h3>案例摘要</h3><p>${escapeHtml(item.case_summary)}</p></section>` : ""}
     ${(item.entity_relations || []).length ? `<section class="detail-section"><h3>主体关联</h3>${item.entity_relations.map(r => `<p>${escapeHtml(r.source || "")} · ${escapeHtml(r.relation || "")} · ${escapeHtml(r.target || "")}</p>`).join("")}</section>` : ""}
     ${Object.keys(item.field_quality || {}).length ? `<details class="detail-section"><summary>字段来源</summary>${Object.entries(item.field_quality).map(([field, quality]) => `<p>${escapeHtml(fieldLabels[field] || field)} · ${escapeHtml(quality)}</p>`).join("")}</details>` : ""}
-    ${item.raw_source_file ? `<section class="detail-section"><a class="quiet-button" href="/api/cases/${encodeURIComponent(item.case_id)}/source" target="_blank" rel="noopener">查看来源原件 ↗</a></section>` : ""}
+    ${item.raw_source_file && !item.original_pdf_available ? `<section class="detail-section"><a class="quiet-button" href="/api/cases/${encodeURIComponent(item.case_id)}/source" target="_blank" rel="noopener">查看来源原件 ↗</a></section>` : ""}
     ${(item.related_cases || []).length ? `<section class="detail-section"><h3>同文书其他主体</h3>${item.related_cases.map(subject => `<article><button class="quiet-button" type="button" data-related-case="${escapeHtml(subject.case_id)}">${escapeHtml(subject.party_name || subject.case_title || subject.case_id)}</button><p>${escapeHtml(subject.violation_behavior)}</p></article>`).join("")}</section>` : ""}
     <section class="detail-section"><h3>证据切片 <small>${item.evidence_chunks.length}</small></h3><div class="evidence-list">${evidence || '<p class="muted">暂无证据切片。</p>'}</div></section>
     <div class="drawer-actions">

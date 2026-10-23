@@ -55,6 +55,7 @@ class CaseDetail(CaseSummary):
     source_file: str | None = None
     source_sha256: str | None = None
     raw_source_file: str | None = None
+    original_pdf_available: bool = False
     party_type: str | None = None
     penalty_amounts: list[dict[str, object]] = Field(default_factory=list)
     field_sources: dict[str, object] = Field(default_factory=dict)

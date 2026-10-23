@@ -481,7 +481,7 @@ async def upload_case(
     safe_filename = _safe_filename(file.filename)
     try:
         with TemporaryDirectory(prefix="finrisk-case-") as temporary_directory:
-            temporary_path = Path(temporary_directory) / safe_filename
+            temporary_path = Path(temporary_directory) / f"document{Path(safe_filename).suffix}"
             await _save_upload(file, temporary_path, get_settings().max_upload_size_bytes)
             result = await service.ingest_file(temporary_path, original_filename=safe_filename)
             background_tasks.add_task(get_collection_service().refresh_indexes)

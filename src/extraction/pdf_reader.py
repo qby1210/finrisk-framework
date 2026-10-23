@@ -11,6 +11,7 @@ from PIL import Image
 from domain.common import ExtractionMethod
 from domain.file_models import ExtractedTable
 from extraction.config import ExtractionConfig
+from extraction.errors import ExtractionError
 from extraction.geometry import normalize_rectangle
 from extraction.ocr_reader import RapidOcrReader
 from extraction.types import DocumentDraft, ElementDraft, PageDraft
@@ -25,8 +26,14 @@ def read_pdf(
 
     page_drafts: list[PageDraft] = []
     tables: list[ExtractedTable] = []
-    with pymupdf.open(str(path)) as document:  # type: ignore[no-untyped-call]
-        for page in document:
+    try:
+        document = pymupdf.open(str(path))  # type: ignore[no-untyped-call]
+    except (RuntimeError, ValueError) as error:
+        raise ExtractionError("PDF 无法读取，请检查文件是否损坏或重新导出") from error
+    with document:
+        if document.needs_pass:
+            raise ExtractionError("PDF 已加密，请先移除打开密码后上传")
+        for page in document:  # type: ignore[attr-defined]
             tables.extend(_extract_native_tables(page, page.number + 1))
             native_page = _read_native_page(page, config)
             if _native_text_is_usable(native_page, config):

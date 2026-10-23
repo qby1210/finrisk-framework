@@ -316,11 +316,15 @@ class IncrementalCaseBuilder:
                         "从监管处罚材料逐一拆出每个被处罚主体，返回{cases:[...]}。银行、保险、个人等分别判断，"
                         "is_insurance_related必须布尔：处罚事实涉及保险经营、保险代理、保险责任人员才为true。"
                         "不能只因文尾保险字样纳入；责任人员可以通过明确机构关联纳入。"
+                        "只拆出原文明确被单独处罚的主体；仅被提及的法定代表人、负责人、"
+                        "保险公司或披露总公司不要单独建案例。"
                         "每项字段：is_insurance_related,party_name,institution_type,penalty_doc_no,violation_behavior,"
                         "penalty_content,regulator,penalty_date,related_parties,legal_basis_refs,risk_tags,risk_tag_basis,"
                         "case_summary,keywords,marketing_expressions,confidence,fact_quotes。"
                         "confidence为0到1；日期YYYY-MM-DD，不明字段null；列表为空用[]。"
                         "fact_quotes为该主体违法事实的原文连续引文数组，必须逐字复制，不能引用其他主体事实。"
+                        "PDF内的换行可以保留；主体名不得因行中换行而截断。"
+                        "violation_behavior和penalty_content用完整短句并以句号收尾。"
                         "risk_tag_basis项为{risk_tag,reason,quote}。risk_tags保留全部有证据的标签，最多27个。"
                         "处罚金额和处罚内容按主体保留；不合计不同主体；无保险相关案例返回空cases。"
                         "related_parties项为{name,role}，legal_basis_refs项为{law_name,article}。"
@@ -335,18 +339,36 @@ class IncrementalCaseBuilder:
                 ),
             ],
         )
-        response = await self.llm_client.complete_json(request)
-        raw = response.data.get("cases")
-        if not isinstance(raw, list):
-            raise LLMProviderError("多主体抽取缺少cases数组")
-        outputs = [_CaseLLMOutput.model_validate(r) for r in raw]
-        selected = [r for r in outputs if r.is_insurance_related is True]
+        selected: list[_CaseLLMOutput] = []
+        for attempt in range(2):
+            response = await self.llm_client.complete_json(request)
+            try:
+                raw = response.data.get("cases")
+                if not isinstance(raw, list):
+                    raise ValueError("多主体抽取缺少cases数组")
+                outputs = [_CaseLLMOutput.model_validate(r) for r in raw]
+                selected = [
+                    _bind_source_quotes(item, extraction.full_text)
+                    for item in outputs if item.is_insurance_related is True
+                ]
+                break
+            except ValueError as error:
+                if attempt:
+                    raise LLMProviderError(
+                        "案例抽取结果未能对应原文，请重新录入或核对文件文字"
+                    ) from error
+                request = request.model_copy(update={"messages": [
+                    *request.messages,
+                    ChatMessage(
+                        role="assistant", content=json.dumps(response.data, ensure_ascii=False)
+                    ),
+                    ChatMessage(role="user", content=(
+                        "上次结果未通过原文校验，请重新抽取。只接受原文中连续存在的主体和事实；"
+                        "可以忽略排版空白，不能改变数字、标点或用词。不合并不连续的引文。"
+                    )),
+                ]})
         artifacts = []
         for index, item in enumerate(selected, 1):
-            if not item.party_name or item.party_name not in extraction.full_text:
-                raise ValueError("被处罚主体需对应原文名称")
-            if not item.fact_quotes or any(q not in extraction.full_text for q in item.fact_quotes):
-                raise ValueError("处罚事实引文未对应原文")
             artifacts.append(
                 await self.build(
                     extraction, source_file=source_file, structured=item, atomic_index=index
@@ -510,6 +532,35 @@ class IncrementalCaseBuilder:
             keywords=labels,
             confidence=0.45,
         )
+
+
+def _literal_quote(quote: str, text: str) -> str | None:
+    """容忍 PDF 空白排版差异，返回真实连续原文；不容忍改写或拼接。"""
+    if quote and quote in text:
+        return quote
+    compact_quote = "".join(quote.split())
+    if not compact_quote:
+        return None
+    positions = [index for index, char in enumerate(text) if not char.isspace()]
+    compact_text = "".join(text[index] for index in positions)
+    start = compact_text.find(compact_quote)
+    if start < 0:
+        return None
+    return text[positions[start] : positions[start + len(compact_quote) - 1] + 1]
+
+
+def _bind_source_quotes(output: _CaseLLMOutput, text: str) -> _CaseLLMOutput:
+    if not output.party_name or _literal_quote(output.party_name, text) is None:
+        raise ValueError("被处罚主体需对应原文名称")
+    quotes = [_literal_quote(quote, text) for quote in output.fact_quotes]
+    if not quotes or any(quote is None for quote in quotes):
+        raise ValueError("处罚事实引文未对应原文")
+    basis = []
+    for item in output.risk_tag_basis:
+        quote = _literal_quote(item.quote, text)
+        if quote is not None:
+            basis.append(item.model_copy(update={"quote": quote}))
+    return output.model_copy(update={"fact_quotes": quotes, "risk_tag_basis": basis})
 
 
 def load_risk_domain_mapping(path: str) -> dict[str, str]:
