@@ -37,5 +37,13 @@
     }
   },
   "frozen_candidate_source_verified_after_test": true,
-  "publication_gate_passed": true
+  "publication_gate_passed": true,
+  "github_runtime_revision": "41f2765780c71d740eed57e17fe8b64885cfb9b4",
+  "server_runtime_revision": "41f2765780c71d740eed57e17fe8b64885cfb9b4",
+  "public_api_smoke": {
+    "passed": 6,
+    "failed": 0,
+    "https": true
+  },
+  "protected_service_unchanged": true
 }
