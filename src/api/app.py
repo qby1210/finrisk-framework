@@ -23,13 +23,14 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 
 from application.analysis_service import QueryAnalysisService
 from application.case_service import CaseManagementService
 from application.collection_service import CollectionService
+from application.evaluation_service import load_evaluation
 from application.evidence_service import KnowledgeEvidenceService
 from application.query_service import QueryProcessingService
 from application.retrieval_service import CaseRetrievalService, CaseSearchFilters
@@ -224,17 +225,22 @@ def analysis_with_options(
 
 
 @app.get("/api/evaluation")
-async def evaluation_summary() -> dict[str, object]:
-    path = PROJECT_ROOT / "reports/competition500/evaluation.json"
-    return json.loads(path.read_text("utf-8")) if path.is_file() else {"available": False}
+async def evaluation_summary() -> JSONResponse:
+    return JSONResponse(
+        load_evaluation(PROJECT_ROOT, get_settings().case_kb_root),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/evaluation/report")
-async def evaluation_report() -> FileResponse:
-    path = PROJECT_ROOT / "reports/competition500/evaluation.json"
-    if not path.is_file():
+async def evaluation_report() -> JSONResponse:
+    payload = load_evaluation(PROJECT_ROOT, get_settings().case_kb_root)
+    if not payload["available"]:
         raise HTTPException(status_code=404, detail="评测尚未完成")
-    return FileResponse(path, filename="FinRisk_200Query_500案例_效果测试.json")
+    return JSONResponse(payload, headers={
+        "Cache-Control": "no-store",
+        "Content-Disposition": 'attachment; filename="FinRisk-evaluation-20261024.json"',
+    })
 
 
 @lru_cache(maxsize=1)

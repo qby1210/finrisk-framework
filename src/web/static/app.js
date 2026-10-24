@@ -122,6 +122,13 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeDrawer();
 });
 
+const routeViews = new Set(["risk", "case-entry", "cases", "evaluation"]);
+function syncHashView() {
+  const view = window.location.hash.slice(1);
+  if (routeViews.has(view) && view !== state.activeView) switchView(view);
+}
+window.addEventListener("hashchange", syncHashView);
+syncHashView();
 loadHealth();
 renderWorkspaceSummary(null);
 loadCollectionStatus();
@@ -573,30 +580,15 @@ function downloadText(filename, content, mediaType) {
 async function loadEvaluation() {
   const target = el("#evaluation-content");
   try {
-    const data = await api("/api/evaluation");
-    if (!data.available) { target.innerHTML = '<div class="inline-empty">评测正在运行，完成后展示结果。</div>'; return; }
-    const selected = data.risk[data.selected_mode];
-    const retrieval = data.retrieval[data.selected_mode.split("_")[0]];
-    const pct = value => `${(value * 100).toFixed(1)}%`;
-    const names = {none: "多路融合", cloud: "Qwen 重排", deepseek: "DeepSeek 重排"};
-    const modeName = key => data.risk_names?.[key] || (key === "rules_only" ? "本地规则与轻量模型" : `${names[key.split("_")[0]]} · ${{post:"Post",pre:"Pre",adaptive:"自适应融合"}[key.split("_")[1]]}`);
-    target.innerHTML = `<div class="summary-grid">
-      <article class="summary-card"><span>风险分类准确率</span><strong>${pct(selected.risk_binary_accuracy)}</strong><small>200条测试Query</small></article>
-      <article class="summary-card"><span>风险标签 Micro-F1</span><strong>${pct(selected.label_micro_f1)}</strong><small>固定27类标签</small></article>
-      <article class="summary-card"><span>类案命中率 @5</span><strong>${pct(retrieval.hit5)}</strong><small>前5条至少一个相关案例</small></article>
-      <article class="summary-card"><span>中位耗时</span><strong>${selected.median_seconds.toFixed(2)}s</strong><small>${escapeHtml(modeName(data.selected_mode))}</small></article></div>
-      <h3>风险审查结果</h3><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>配置</th><th>风险准确率</th><th>三态准确率</th><th>标签F1</th><th>场景准确率</th><th>待复核句</th><th>中位耗时</th></tr></thead><tbody>${Object.entries(data.risk).map(([key,v])=>`<tr><td>${escapeHtml(modeName(key))}${key===data.selected_mode?" · 推荐":""}</td><td>${pct(v.risk_binary_accuracy)}</td><td>${pct(v.state_accuracy)}</td><td>${pct(v.label_micro_f1)}</td><td>${pct(v.scene_accuracy)}</td><td>${v.missing_model_targets}</td><td>${v.median_seconds.toFixed(2)}s</td></tr>`).join("")}</tbody></table></div>
-      <h3>500案例检索结果</h3><p class="muted">${escapeHtml(data.dataset.annotation)}；${retrieval.positive_queries}/${retrieval.judged_queries}条Query有强相关案例。Hit表示至少命中一条，Recall表示相关集合覆盖率。</p><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>排序</th><th>命中率@5</th><th>Recall@10</th><th>MRR@20</th><th>NDCG@10</th></tr></thead><tbody>${Object.entries(data.retrieval).map(([key,v])=>`<tr><td>${names[key]}</td><td>${pct(v.hit5)}</td><td>${pct(v.recall_at_10)}</td><td>${v.mrr.toFixed(3)}</td><td>${v.ndcg_at_10.toFixed(3)}</td></tr>`).join("")}</tbody></table></div>${renderLongtextEvaluation(data)}`;
-  } catch (error) { target.innerHTML = `<div class="inline-empty error">${escapeHtml(error.message)}</div>`; }
-}
-
-function renderLongtextEvaluation(data) {
-  if (!data.longtext) return "";
-  const rows = ["baseline", "cascade"].flatMap(version =>
-    Object.entries(data.longtext[version].results[data.selected_mode]).map(([length, value]) =>
-      `<tr><td>${version === "baseline" ? "逐句完整复核" : "全文初筛＋详细核查"}</td><td>${Number(length).toLocaleString("zh-CN")}字</td><td>${value.median_seconds.toFixed(2)}s</td><td>${value.p95_seconds.toFixed(2)}s</td><td>${value.risk_queries_detected}/${value.queries}</td></tr>`)
-  ).join("");
-  return `<h3>长文本速度对照</h3><p class="muted">12条合成长文，风险分布在首、中、尾；与200条效果测试分开。</p><div class="evaluation-scroll"><table class="evaluation-table"><thead><tr><th>路径</th><th>字数档</th><th>中位耗时</th><th>P95</th><th>检出风险Query</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const data = await api("/api/evaluation", { cache: "no-store" });
+    if (!data.available) {
+      target.innerHTML = '<div class="inline-empty">暂无已发布的评测结果。</div>';
+      return;
+    }
+    window.FinRiskEvaluation.mount(target, data);
+  } catch (error) {
+    target.innerHTML = `<div class="inline-empty error">${escapeHtml(error.message)}</div>`;
+  }
 }
 
 function exportSubmission() {
