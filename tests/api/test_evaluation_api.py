@@ -57,7 +57,7 @@ def test_page_and_download_match_and_both_disable_cache(tmp_path, monkeypatch):
     assert "attachment" in download.headers["content-disposition"]
 
 
-def test_published_snapshot_keeps_all_runs_and_selects_latest_deployed_algorithm():
+def test_published_snapshot_contains_only_current_version_and_no_model_control():
     root = Path(__file__).resolve().parents[2]
     value = load_evaluation(root, root / "data/processed/knowledge/finrisk_full_20261024")
     assert value["freshness"]["status"] == "current"
@@ -65,7 +65,9 @@ def test_published_snapshot_keeps_all_runs_and_selects_latest_deployed_algorithm
     assert selected["status"] == "current"
     assert selected["id"] == "status_20261024_baseline"
     assert selected["risk"]["deepseek_adaptive"]["risk_binary_accuracy"] == 0.91
-    assert len(value["runs"]) == 4
+    assert len(value["runs"]) == 1
+    assert {"historical", "comparisons", "development"}.isdisjoint(value)
+    assert set(selected["risk"]) == {"deepseek_adaptive", "rules_only"}
     for run in value["runs"]:
         assert len(run["rankings"]) == 200
         for mode in run["modes"].values():
@@ -73,7 +75,6 @@ def test_published_snapshot_keeps_all_runs_and_selects_latest_deployed_algorithm
             assert {p["query_id"] for p in mode["predictions"]} == set(value["inputs"])
             assert sum(sum(row.values()) for row in mode["confusion"].values()) == 200
         assert len(run["risk"]["deepseek_adaptive"]["per_label"]) == 27
-    assert not value["comparisons"]["information_sufficiency_20261024"]["promote"]
     assert value["risk"] == selected["risk"]
     assert value["retrieval"]["deepseek"] == selected["retrieval"]
 
@@ -81,4 +82,4 @@ def test_published_snapshot_keeps_all_runs_and_selects_latest_deployed_algorithm
 def test_app_shell_revalidates_its_versioned_assets():
     response = TestClient(app).get("/")
     assert response.headers["cache-control"] == "no-cache"
-    assert "/static/evaluation.js?v=evaluation-20261024" in response.text
+    assert "/static/evaluation.js?v=evaluation-current-20261024" in response.text

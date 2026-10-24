@@ -8,16 +8,17 @@ const data = JSON.parse(readFileSync(new URL("../../reports/evaluation_dashboard
 const run = data.runs.find(r=>r.id===data.selected_run);
 data.freshness = { status: "current" };
 
-test("latest deployed rerun is featured; rejected and historical runs stay labeled",()=>{
+test("only current version and one no-model comparison are shown",()=>{
   const html=ui.renderDashboard(data);
   assert.match(html,/91\.00%/);
-  assert.match(html,/当前版本 · 最新复测/);
-  assert.match(html,/信息不足候选 · 已回退/);
-  assert.match(html,/2026-10-19（不作为当前版本结果）/);
+  assert.match(html,/无大模型与当前版本对比/);
+  assert.match(html,/规则与轻量模型/);
+  assert.doesNotMatch(html,/优化前|已回退|开发验证|发布门槛|历史报告|evaluation-run|evaluation-mode/);
   assert.doesNotMatch(html,/undefined|NaN/);
+  assert.equal((html.match(/evaluation-comparison-table/g)||[]).length,1);
 });
 
-test("all eight mode results, samples and rankings render without missing values",()=>{
+test("current results and no-model control retain complete valid predictions",()=>{
   for(const r of data.runs) for(const mode of Object.keys(r.modes)) {
     assert.doesNotMatch(ui.renderRun(r,mode),/undefined|NaN/);
     for(let p=1;p<=10;p++) assert.doesNotMatch(ui.renderSamples(r,mode,data.inputs,"","all",p),/undefined|NaN/);

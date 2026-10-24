@@ -30,6 +30,8 @@
 .evaluation-table { width: 100%; border-collapse: collapse; margin: 16px 0 28px; }
 .evaluation-table th, .evaluation-table td { padding: 14px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .evaluation-table th { color: var(--muted); font-weight: 500; }
+.evaluation-comparison-table th:last-child, .evaluation-comparison-table td:last-child { background: #f4f7f5; color: #245844; font-weight: 550; }
+.evaluation-comparison-table td { padding-top: 11px; padding-bottom: 11px; }
 .evaluation-table { font-variant-numeric: tabular-nums; }
 .evaluation-scroll { max-width: 100%; }
 #evaluation-content, #evaluation-content section { min-width: 0; }
@@ -44,17 +46,13 @@
 .evaluation-badge { display: inline-block; padding: 4px 9px; margin: 0 8px 6px 0; border: 1px solid var(--line); border-radius: 4px; font-size: 12px; font-weight: 400; }
 .evaluation-warning { color: var(--red); }
 .evaluation-context { margin: 15px 0; }
-.evaluation-jumps { display: flex; gap: 18px; flex-wrap: wrap; padding: 16px 0; border-bottom: 1px solid var(--line); }
-.evaluation-jumps a { font-size: 13px; text-underline-offset: 4px; }
-.evaluation-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 .evaluation-controls { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; }
 .evaluation-controls label { display: grid; gap: 8px; font-size: 12px; color: var(--muted); }
 .evaluation-controls select, .evaluation-controls input { max-width: 100%; min-width: 190px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); }
 .evaluation-search { flex: 1; min-width: 200px; }
 .evaluation-details { border-top: 1px solid var(--line); padding: 16px 0; }
 .evaluation-details summary, .evaluation-sample summary { cursor: pointer; line-height: 1.8; }
-.evaluation-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow-y: auto; padding: 16px; background: #fafafa; font-size: 12px; }
-.evaluation-experiment { margin-top: 24px; border-top: 1px solid var(--line); }
+.evaluation-details > summary { font-weight: 550; }
 .evaluation-notes { padding-left: 20px; line-height: 1.9; color: var(--muted); }
 .evaluation-sample { border-bottom: 1px solid var(--line); padding: 14px 0; }
 .evaluation-sample summary { display: flex; flex-wrap: wrap; gap: 6px 18px; }
