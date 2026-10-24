@@ -96,5 +96,41 @@
     },
     "live_evidence_returned": 10,
     "live_literal_verified": 10
+  },
+  "server": {
+    "url": "https://www.finrisklab.online/",
+    "data_version": "finrisk-full-20261024",
+    "statistics": {
+      "total_cases": 10867,
+      "base_cases": 10000,
+      "user_cases": 1,
+      "crawled_cases": 866,
+      "active_cases": 10429,
+      "risk_tag_count": 27,
+      "data_version": "finrisk-full-20261024",
+      "latest_crawl_at": "2026-10-24T04:30:24.108842+08:00",
+      "latest_penalty_date": "2026-08-28",
+      "subject_case_count": 18093,
+      "listing_unit": "document"
+    },
+    "vector_units": 69155,
+    "raw_pdf_bindings_verified": 10000,
+    "index_ready": true,
+    "pi_worker_running": true,
+    "post_cleanup_query_state": "risk",
+    "post_cleanup_query_warnings": [],
+    "browser_counts_verified": true,
+    "server_additional_embedding_texts": 6,
+    "server_additional_embedding_batches": 1
+  },
+  "cleanup": {
+    "local_freed_bytes": 4491046912,
+    "server_freed_bytes": 4079013888,
+    "old_local_knowledge_removed": true,
+    "old_server_knowledge_removed": true,
+    "original_pdfs_preserved": 10000,
+    "local_active_index": "qwen-f7489120f086a51a8df8c2ca.npy",
+    "server_active_index": "qwen-cb2c07a5c3ebbdfd9c91cf3c.npy",
+    "python_tests_after_cleanup": 310
   }
 }

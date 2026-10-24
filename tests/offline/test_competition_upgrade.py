@@ -50,9 +50,7 @@ def test_new_file_splits_parties_and_excludes_non_insurance(tmp_path):
     path = tmp_path / "处罚.txt"
     path.write_text(text, "utf-8")
     extraction = FileExtractor().extract(path, FilePurpose.CASE)
-    taxonomy_path = (
-        ROOT / "data/processed/knowledge/finrisk_v2_1_20261018/dictionary/risk_type_dictionary.csv"
-    )
+    taxonomy_path = AppSettings.from_env().risk_dictionary_path
     with taxonomy_path.open(encoding="utf-8-sig") as f:
         taxonomy = tuple(r["risk_tag"] for r in csv.DictReader(f))
 

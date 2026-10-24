@@ -11,9 +11,10 @@ import pytest
 from offline.case_ingestion import IncrementalCaseBuilder, load_risk_domain_mapping
 from offline.extraction import extract_case_file
 from risk.detection import RuleRiskDetector
+from settings import AppSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CASE_KB_ROOT = PROJECT_ROOT / "data" / "processed" / "knowledge" / "finrisk_v2_1_20261018"
+CASE_KB_ROOT = AppSettings.from_env().case_kb_root
 
 
 def test_real_pdf_can_build_three_table_artifacts_without_writing_database() -> None:

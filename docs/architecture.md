@@ -14,9 +14,10 @@ retrieval 使用 BM25 与同一模型/同一维度的 Qwen 文档及 query 向�
 重排 provider 为 none、cloud（Qwen）和 deepseek（Pi 列表排序）。DeepSeek 的下标排列经两端
 完整性校验，失败回退。可选 BGE 与 TF-IDF 后端仍保留；不同模型缓存不混用。
 
-当前唯一默认案例库为 data/processed/knowledge/finrisk_v2_1_20261018。列表按 9,639 份文书合并，
-保留15,620个主体案例及结构化/原文证据单元和原文绑定扩展。原始 PDF 位于 raw_pdfs。
+当前默认案例库为 data/processed/knowledge/finrisk_full_20261024。原始分区10,000份文书，
+官网分区联合既有增量后866份，主体案例18,092个；服务器另保留原有网页录入。
+列表按文书计数，区分处罚、拟处罚、许可与保险范围待核。原始 PDF 位于 raw_pdfs，均已绑定。
 证据与法条通过 SHA、ID 和来源区间回核；机制指南不是法律原文，候选状态和人工待审状态继续保留。
 
-原始上游基础资产保留供重建，P0运行依赖精简为25份法规和机制数据，指纹及原文区间持续校验。评测参考隔离在 data/eval 中，
+上游Release按固定SHA重建，P0法规和机制资产独立冻结，指纹及原文区间持续校验。评测参考隔离在 data/eval 中，
 不进入索引或模型输入。运行过程在本地outputs，公开评测摘要在reports/competition500。正式构建、验收及评测入口见 README。
