@@ -24,6 +24,14 @@ def load_evaluation(root: Path, knowledge_root: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"available": False}
     payload: dict[str, Any] = json.loads(path.read_text("utf-8"))
+    # Older open tabs can still read the current results until their next page refresh.
+    selected = next(
+        (run for run in payload.get("runs", []) if run["id"] == payload.get("selected_run")), None
+    )
+    if selected is not None:
+        payload["risk"] = selected["risk"]
+        payload["risk_names"] = {"deepseek_adaptive": "DeepSeek · 自适应融合"}
+        payload["retrieval"] = {"deepseek": selected["retrieval"]}
     bindings = payload.get("source_bindings", {})
     changed = [name for name, expected in bindings.items() if file_digest(root / name) != expected]
     data = root / "data/eval/competition500_v1"

@@ -271,7 +271,9 @@ ReviewDependency = Annotated[QueryReviewService, Depends(get_review_service)]
 
 @app.get("/", include_in_schema=False)
 async def index_page() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+    return FileResponse(
+        STATIC_DIR / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"}
+    )
 
 
 @app.get("/api/health")

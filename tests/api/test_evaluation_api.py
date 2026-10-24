@@ -74,3 +74,11 @@ def test_published_snapshot_keeps_all_runs_and_selects_latest_deployed_algorithm
             assert sum(sum(row.values()) for row in mode["confusion"].values()) == 200
         assert len(run["risk"]["deepseek_adaptive"]["per_label"]) == 27
     assert not value["comparisons"]["information_sufficiency_20261024"]["promote"]
+    assert value["risk"] == selected["risk"]
+    assert value["retrieval"]["deepseek"] == selected["retrieval"]
+
+
+def test_app_shell_revalidates_its_versioned_assets():
+    response = TestClient(app).get("/")
+    assert response.headers["cache-control"] == "no-cache"
+    assert "/static/evaluation.js?v=evaluation-20261024" in response.text
