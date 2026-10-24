@@ -12,6 +12,7 @@ from pathlib import Path
 
 from domain.query_models import QueryScene
 from domain.risk_models import RiskEvidence
+from query.context import has_adopted_instruction
 
 REGEX_LABEL_MAP: dict[str, tuple[str, ...]] = {
     "unlicensed_premises": ("其他",),
@@ -124,7 +125,8 @@ _STRONG_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     "unsolicited_telemarketing": re.compile(
         r"(?:未经同意|非法购买|违规获取).{0,16}(?:名单|手机号|联系方式).{0,16}"
-        r"(?:拨打|呼叫|电销)|(?:明确拒绝|拒接).{0,16}(?:更换号码|继续呼叫|反复拨打)"
+        r"(?:拨打|呼叫|电销)|(?:明确拒绝|拒接).{0,16}"
+        r"(?:更换号码|换号码|继续呼叫|继续联系|反复拨打)"
     ),
     "exaggerated_return": re.compile(
         r"(?:复利|收益|年化|回报).{0,12}(?:预计|预测|测算)?(?:可达|达到)\s*\d+(?:\.\d+)?\s*%"
@@ -462,10 +464,17 @@ def is_explicit_compliance_statement(text: str) -> bool:
     """识别规范性禁止、正向披露和合同限定，避免把“不得违规”当作违规事实。"""
 
     normalized = unicodedata.normalize("NFKC", text).casefold()
+    if has_adopted_instruction(normalized):
+        return False
     for match in _CONTRAST_ASSERTION.finditer(normalized):
         start = match.start("assertion")
         if not _ASSERTION_NEGATION.search(normalized[max(0, start - 14) : start]):
             return False  # A disclaimer cannot suppress a separate affirmative promise.
+    # Keep the refusal and subsequent action together: generic keyword scanning
+    # would mistake prohibited quotations for affirmative behavior.
+    for match in _STRONG_PATTERNS["unsolicited_telemarketing"].finditer(normalized):
+        if not _is_negated(normalized, match.start()):
+            return False
     directive = _COMPLIANCE_DIRECTIVE.search(normalized) or re.search(
         r"(?:不得使用|禁止使用|严禁使用|不做|不使用)[^。；\n]{0,65}(?:什么都保|肯定赔|稳赚|保本|保证|承诺|返佣|代签)",
         normalized,

@@ -857,6 +857,11 @@ class RiskAssessmentPipeline:
                 )
         if self.adaptive:
             extra_prompt += (
+                "\n输出前逐标签独立核对：标签只来自当前目标的具体事实与其明确语境。"
+                "收益承诺不自动证明收益率被编造；冒充客户或欺骗监管不自动等于欺骗投保人。"
+                "公司、主管、账号或会务公司被提及，不证明代理人失管或机构没有销售资质。"
+                "培训材料违规须是当前材料实际教授或要求违规；介绍、否决或引用旧案例不成立。"
+                "每个标签分别需要行为、对象及必要条件，相关标签不得靠联想补齐。"
                 "\n自适应审查：逐个检查目标句mechanism_candidates中的全部候选机制，不能只选前两个。"
                 "触发词只提示核查，不证明风险；否定、禁止、合规解释要分别判no_clear_risk。"
                 "除已明确成立风险，必要事实未知的机制判insufficient_information，列出具体缺口。"
@@ -1162,11 +1167,15 @@ class RiskAssessmentPipeline:
                         "risk_labels": guarded_labels,
                         "label_assessments": guarded_extra,
                         "mechanism_assessments": guarded_mechanisms,
-                        **({
-                            "risk_score": min(output.risk_score, 0.19),
-                            "decision_state": "no_clear_risk",
-                            "reasoning": "本句未满足候选标签的必要事实；保留产品限定与原文。",
-                        } if removed_all and not output.missing_facts else {}),
+                        **(
+                            {
+                                "risk_score": min(output.risk_score, 0.19),
+                                "decision_state": "no_clear_risk",
+                                "reasoning": "本句未满足候选标签的必要事实；保留产品限定与原文。",
+                            }
+                            if removed_all and not output.missing_facts
+                            else {}
+                        ),
                     }
                 )
         return outputs, response.agent_trace
@@ -1937,33 +1946,32 @@ def _explicit_content_labels(text: str) -> list[str]:
     """从明确措辞补充容易漏检的事实标签，不改变风险分值。"""
     labels: list[str] = []
     fabricated_yield_patterns = (
-        r"(?:收益|年化|利率).{0,12}\d+(?:\.\d+)?\s*%.{0,16}(?:写进|写入|载入).{0,6}合同",
-        r"(?:过去|历史).{0,24}(?:收益|利率).{0,12}\d+(?:\.\d+)?\s*%.{0,32}未来.{0,16}(?:保持|维持|达到)",
-        r"(?:补贴|礼金|赠品|赠送利益).{0,20}(?:当成|作为|视为).{0,10}(?:产品)?收益",
-        r"(?:加息|收益).{0,8}名额.{0,64}(?:不存在|虚构|编造)",
-        r"\d+(?:\.\d+)?\s*%.{0,24}(?:手工|自行).{0,10}(?:测算|换算).{0,40}(?:不是|并非).{0,24}(?:历史|保证|合同)",
+        r"(?:虚构|编造|伪造|捏造).{0,24}(?:收益率|年化|利率|收益数据|历史业绩)",
+        r"(?:收益率|收益数据|年化|历史业绩).{0,24}(?:系编造|系伪造|凭空捏造)",
     )
     if any(re.search(pattern, text, re.DOTALL) for pattern in fabricated_yield_patterns):
         labels.append("虚构收益率")
 
-    if re.search(r"(?:家属|亲属).{0,10}(?:可以|可由|安排|实际由)?(?:代签|代填|代操作)", text):
-        labels.extend(("客户信息不真实", "代理人管理不到位"))
+    if re.search(r"(?:家属|亲属).{0,12}(?:代签|代填|代操作)", text) and re.search(
+        r"冒充本人|伪造.{0,8}(?:签名|客户信息)|登记为本人操作", text
+    ):
+        labels.append("客户信息不真实")
 
-    if re.search(
+    unlicensed = re.search(
         r"(?:无|没有|未取得|不具备).{0,8}(?:保险)?销售资质.{0,18}(?:会务|咨询|第三方|机构|公司)|"
-        r"(?:会务|咨询|第三方).{0,6}公司.{0,24}(?:负责|承办).{0,32}(?:产品讲解|保险责任|投保流程|需求访谈)",
+        r"(?:机构|公司).{0,24}(?:未取得|不具备|没有).{0,8}(?:保险代理|保险销售)资质",
         text,
         re.DOTALL,
-    ):
-        labels.extend(("委托无资质机构销售", "代理人管理不到位"))
+    )
+    if unlicensed and re.search(r"委托|代理协议|实际销售|招揽保险|向客户销售", text):
+        labels.append("委托无资质机构销售")
 
     if re.search(
         r"(?:负责人|主管).{0,80}(?:收到|已知).{0,20}(?:异常|提示|清单).{0,50}(?:未|没有)(?:停用|核查|处置)|"
-        r"(?:系统|质检|机构).{0,24}(?:未|没有).{0,12}(?:拦截|覆盖|复核|重检).{0,18}(?:异常|相关业务)?|"
-        r"(?:操作|登录|审批)?账号.{0,12}(?:属于|为|使用).{0,8}(?:团队)?(?:主管|负责人|管理员)",
+        r"(?:系统|质检|机构).{0,24}(?:未|没有).{0,12}(?:拦截|覆盖|复核|重检).{0,18}(?:异常|相关业务)?",
         text,
         re.DOTALL,
-    ):
+    ) and re.search(r"代理人|营销员|销售人员", text):
         labels.append("代理人管理不到位")
 
     if re.search(
@@ -1971,15 +1979,17 @@ def _explicit_content_labels(text: str) -> list[str]:
         r"(?:客户|投保人).{0,12}(?:表示|称).{0,8}(?:从未|没有|未曾).{0,8}(?:接到|接受|完成).{0,6}回访",
         text,
         re.DOTALL | re.IGNORECASE,
-    ):
+    ) and re.search(r"伪造|虚假|冒充|记录.{0,12}已完成|后台.{0,12}(?:勾选|记录)", text):
         labels.extend(("回访违规", "客户信息不真实"))
 
     if re.search(
         r"(?:资金|款项|费用).{0,45}(?:转入|流入|回流).{0,24}(?:营销|销售|员工).{0,12}(?:账户|成员).{0,80}(?:支付|返还|发放).{0,24}(?:新投保|投保)客户",
         text,
         re.DOTALL,
-    ):
-        labels.extend(("回扣返佣", "合同外利益"))
+    ) and re.search(r"返佣|保费回扣|保费返现|合同约定以外", text):
+        labels.append("回扣返佣")
+        if re.search(r"合同约定以外|合同外利益", text):
+            labels.append("合同外利益")
 
     return list(dict.fromkeys(labels))
 

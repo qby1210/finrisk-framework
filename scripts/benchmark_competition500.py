@@ -42,12 +42,12 @@ def freeze_runtime():
     import llm.client as bridge
 
     folder = OUT / "frozen_runtime"
-    if not folder.exists():
-        folder.mkdir(parents=True)
+    if not (OUT / "run_manifest.json").is_file():
+        folder.mkdir(parents=True, exist_ok=True)
         for name in ["runtime.mjs", "worker.mjs"]:
             shutil.copy2(ROOT / "agent_runtime" / name, folder / name)
         modules = folder / "node_modules"
-        if os.name == "nt":
+        if os.name == "nt" and not modules.exists():
             command = (
                 "New-Item -ItemType Junction -Path '"
                 + str(modules).replace("'", "''")
@@ -55,10 +55,12 @@ def freeze_runtime():
                 + str(ROOT / "agent_runtime/node_modules").replace("'", "''")
                 + "' | Out-Null"
             )
-            subprocess.run(
-                ["powershell", "-NoProfile", "-Command", command], check=True, capture_output=True
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", command], capture_output=True
             )
-        else:
+            if result.returncode:
+                shutil.copytree(ROOT / "agent_runtime/node_modules", modules, dirs_exist_ok=True)
+        elif not modules.exists():
             modules.symlink_to(ROOT / "agent_runtime/node_modules", target_is_directory=True)
         with ZipFile(OUT / "source_snapshot.zip", "w", ZIP_DEFLATED) as archive:
             for path in (ROOT / "src").rglob("*.py"):

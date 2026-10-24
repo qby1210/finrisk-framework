@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from domain.query_models import QueryProcessingResult, RiskSentenceContext
+from query.context import has_adopted_instruction
 
 _FRAME = re.compile(
     r"反面(?:教材|示例|案例)|错误(?:示例|示范)|教学立场|"
@@ -20,7 +21,9 @@ def rejected_proposal_only(text: str) -> bool:
     return bool(
         re.search(r"方案[（(]待审[）)]|(?:方案|提案).{0,10}尚未执行", text)
         and re.search(r"请先停止该方案执行|该方案已被否决|该提案未被采纳", text)
-        and not re.search(r"已开始(?:执行|投放)|正在执行|已经实施|仍在执行|照此继续", text)
+        and not re.search(
+            r"已开始(?:执行|投放)|正在执行|已经实施|仍在执行|照此继续|已查实|已核实|已发生", text
+        )
     )
 
 
@@ -34,7 +37,13 @@ def carry_document_frame(
     sentences only explain whether a passage is a quotation or a corrective task;
     they do not transfer another paragraph's business facts to the target.
     """
-    rejected = rejected_proposal_only(query.source_text)
+    # A rejected proposal in one scope cannot clear an independently reported fact.
+    scope_texts: dict[str, list[str]] = {}
+    for sentence in query.sentences:
+        scope_texts.setdefault(contexts[sentence.sentence_id].scope_id, []).append(sentence.text)
+    rejected_scopes = {
+        scope for scope, parts in scope_texts.items() if rejected_proposal_only("\n".join(parts))
+    }
     anchors = [sentence for sentence in query.sentences if _FRAME.search(sentence.text)]
     if not anchors:
         return contexts
@@ -51,6 +60,24 @@ def carry_document_frame(
 
     framed = {}
     for sid, context in contexts.items():
+        scope_text = "\n".join(scope_texts[context.scope_id])
+        rejected = context.scope_id in rejected_scopes
+        actual_fact_scope = bool(
+            re.search(
+                r"已(?:查实|核实|实施|发生)|检查(?:确认|发现)|独立.{0,8}事实|"
+                r"(?:业务员|销售|代理人).{0,20}(?:已向|实际|已经)",
+                scope_text,
+            )
+        )
+        corrective = bool(
+            re.search(
+                r"(?:以上|上述).{0,30}(?:错误示范|错误示例|反面教材).{0,30}"
+                r"(?:不得|不能|严禁).{0,8}(?:照此|照做|照讲|使用)",
+                scope_text,
+            )
+            and not actual_fact_scope
+            and not has_adopted_instruction(scope_text)
+        )
         existing = {source.sentence_id for source in context.source_sentences}
         additions = [
             ContextSourceSentence(
@@ -63,6 +90,9 @@ def carry_document_frame(
             )
             for sentence in selected
             if sentence.sentence_id not in existing
+            and (
+                not actual_fact_scope or contexts[sentence.sentence_id].scope_id == context.scope_id
+            )
         ]
         framed[sid] = context.model_copy(
             update={
@@ -71,7 +101,7 @@ def carry_document_frame(
                     key=lambda source: source.document_start_offset,
                 ),
                 "requires_review": False if rejected else True,
-                "stance": "negative_example" if rejected else context.stance,
+                "stance": "negative_example" if rejected or corrective else context.stance,
                 "review_reasons": [
                     *context.review_reasons,
                     "全文含引述或纠错立场；仅解释目标句立场，不借用其他段落事实",

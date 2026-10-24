@@ -43,6 +43,7 @@ release/
 outputs/competition_upgrade_20261019/
 outputs/label_optimization_20261019/
 outputs/crawl_integration_20261019/
+outputs/query_optimization_20261024/
 outputs/dataset_self_review_20261019/
 data/processed/case_sources/
 data/eval/competition500_v1/reference/drafts/

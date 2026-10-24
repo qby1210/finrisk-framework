@@ -42,6 +42,19 @@ _AFFIRMATIVE = re.compile(
 )
 _REFERENCE = re.compile(r"^(?:这个|这款|该产品|上述|前述|它|这样|那就|同样|照这个)")
 _PARAGRAPH_BREAK = re.compile(r"\r?\n[ \t]*\r?\n")
+_ADOPT_INSTRUCTION = re.compile(
+    r"(?:要求|指导|让)(?![^,，。;；\n]{0,24}(?:不得|不能|禁止|严禁|不要))"
+    r"[^,，。;；\n]{0,24}(?:照讲|照说|按这句讲|照此销售)"
+)
+
+
+def has_adopted_instruction(text: str) -> bool:
+    """Recognize affirmative reuse of quoted instructions, retaining prohibition scope."""
+    for match in _ADOPT_INSTRUCTION.finditer(text):
+        prefix = re.split(r"[,，。;；\n]", text[: match.start()])[-1]
+        if not re.search(r"(?:不得|严禁|禁止|不能|不应|不要|不再).{0,8}$", prefix):
+            return True
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +120,7 @@ def build_sentence_contexts(
             name = speaker.group("name")
             role = _role(name)
         body = sentence_body(sentence.text)
-        if _ACTUAL_BEHAVIOR.search(body):
+        if _ACTUAL_BEHAVIOR.search(body) or has_adopted_instruction(body):
             negative_example = False
         elif _EXAMPLE.search(body[:120]):
             negative_example = True
@@ -152,6 +165,8 @@ def build_sentence_contexts(
         )
         stance: str = "statement"
         reasons: list[str] = []
+        if has_adopted_instruction(target.body):
+            reasons.append("当前要求实际采纳引用话术，需核查其内容，不能仅按反面示例放行")
         if target.negative_example:
             stance = "negative_example"
             reasons.append("当前段落明确标为反面或禁止话术，引用不等于实施")

@@ -10,6 +10,7 @@ import os
 import random
 import sqlite3
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -37,7 +38,14 @@ def save(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), "utf-8")
-    temp.replace(path)
+    for attempt in range(6):
+        try:
+            temp.replace(path)
+            break
+        except PermissionError:
+            if attempt == 5:
+                raise
+            time.sleep(0.1 * (attempt + 1))
 
 
 def write_rows(path, values):

@@ -43,7 +43,15 @@ class LocalRiskCalibration:
             self.examples = (
                 [json.loads(str(v)) for v in data["examples"]] if "examples" in data else []
             )
-        self.version = "char-ngram-development400-reviewed-v2"
+            self.version = (
+                str(data["version"].item())
+                if "version" in data
+                else "char-ngram-development400-reviewed-v2"
+            )
+        if self.weights.shape != (DIMENSION, 3 + len(self.labels)):
+            raise ValueError("本地候选模型维度与标签表不一致")
+        if not np.isfinite(self.weights).all():
+            raise ValueError("本地候选模型包含无效数值")
 
     def predict(self, text: str) -> tuple[float, list[tuple[str, float]]]:
         logits = features(text) @ self.weights
@@ -57,13 +65,38 @@ class LocalRiskCalibration:
         if not self.examples:
             return []
         scores = self.example_features[:, 1:] @ features(text)[1:]
-        order = np.argsort(-scores)[:2]
-        return [self.examples[int(i)] for i in order if scores[i] >= 0.15]
+        order = [int(i) for i in np.argsort(-scores) if scores[i] >= 0.15]
+        if not order:
+            return []
+        first = order[0]
+        # A relevant contrast prevents two similar positive examples from becoming
+        # apparent evidence that a normal/unknown input must also be positive.
+        contrast = next(
+            (
+                i
+                for i in order[1:]
+                if self.examples[i]["decision_state"] != self.examples[first]["decision_state"]
+                and scores[i] >= max(0.15, float(scores[first]) * 0.65)
+            ),
+            None,
+        )
+        selected = [first, contrast] if contrast is not None else order[:2]
+        return [self.examples[i] for i in selected]
 
 
 def train_model(
-    texts: list[str], states: list[str], label_sets: list[list[str]], labels: list[str], path: Path
+    texts: list[str],
+    states: list[str],
+    label_sets: list[list[str]],
+    labels: list[str],
+    path: Path,
+    *,
+    example_metadata: list[dict[str, object]] | None = None,
 ) -> None:
+    if not (len(texts) == len(states) == len(label_sets)) or not texts:
+        raise ValueError("训练文本、状态和标签必须非空且逐条对应")
+    if example_metadata is not None and len(example_metadata) != len(texts):
+        raise ValueError("训练样本元数据未逐条对应")
     matrix = np.stack([features(text) for text in texts])
     targets = np.zeros((len(texts), 3 + len(labels)), dtype=np.float32)
     for index, (state, names) in enumerate(zip(states, label_sets, strict=True)):
@@ -93,7 +126,12 @@ def train_model(
     path.parent.mkdir(parents=True, exist_ok=True)
     indices = [i for i, text in enumerate(texts) if len(text) <= 500]
     examples = [
-        {"text": texts[i], "decision_state": states[i], "risk_labels": label_sets[i]}
+        {
+            "text": texts[i],
+            "decision_state": states[i],
+            "risk_labels": label_sets[i],
+            **(example_metadata[i] if example_metadata is not None else {}),
+        }
         for i in indices
     ]
     np.savez_compressed(
@@ -102,4 +140,5 @@ def train_model(
         labels=np.array(labels),
         example_features=matrix[indices],
         examples=np.array([json.dumps(e, ensure_ascii=False) for e in examples]),
+        version=np.array(f"char-ngram-development{len(texts)}-boundary-v3"),
     )
