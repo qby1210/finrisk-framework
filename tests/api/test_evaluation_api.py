@@ -63,8 +63,10 @@ def test_published_snapshot_contains_only_current_version_and_no_model_control()
     assert value["freshness"]["status"] == "current"
     selected = next(r for r in value["runs"] if r["id"] == value["selected_run"])
     assert selected["status"] == "current"
-    assert selected["id"] == "status_20261024_baseline"
-    assert selected["risk"]["deepseek_adaptive"]["risk_binary_accuracy"] == 0.91
+    assert selected["id"] == "query_20261024_candidate_final"
+    assert selected["risk"]["deepseek_adaptive"]["risk_binary_accuracy"] == 0.915
+    assert selected["risk"]["deepseek_adaptive"]["risk_precision"] == 0.8842975206611571
+    assert value["measurement"]["kind"] == "release_acceptance"
     assert len(value["runs"]) == 1
     assert {"historical", "comparisons", "development"}.isdisjoint(value)
     assert set(selected["risk"]) == {"deepseek_adaptive", "rules_only"}
@@ -82,4 +84,4 @@ def test_published_snapshot_contains_only_current_version_and_no_model_control()
 def test_app_shell_revalidates_its_versioned_assets():
     response = TestClient(app).get("/")
     assert response.headers["cache-control"] == "no-cache"
-    assert "/static/evaluation.js?v=evaluation-current-20261024" in response.text
+    assert "/static/evaluation.js?v=evaluation-acceptance-charts-20261024" in response.text

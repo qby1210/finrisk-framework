@@ -32,6 +32,19 @@
 .evaluation-table th { color: var(--muted); font-weight: 500; }
 .evaluation-comparison-table th:last-child, .evaluation-comparison-table td:last-child { background: #f4f7f5; color: #245844; font-weight: 550; }
 .evaluation-comparison-table td { padding-top: 11px; padding-bottom: 11px; }
+.evaluation-chart { margin: 24px 0; padding: 20px 20px 8px; border: 1px solid var(--line); border-radius: 8px; }
+#evaluation-content .evaluation-chart h4 { margin: 0 0 8px; }
+.evaluation-chart figcaption p { margin: 0; }
+.evaluation-chart-legend { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 18px; margin: 16px 0 4px; font-size: 12px; }
+.evaluation-chart-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.evaluation-chart-legend i { width: 12px; height: 12px; border-radius: 2px; }
+.evaluation-chart-scroll { overflow-x: auto; }
+.evaluation-chart svg { display: block; width: 100%; height: auto; min-width: 460px; fill: none; stroke: none; }
+.evaluation-chart text { fill: var(--ink); font-family: inherit; font-size: 12px; stroke: none; }
+.evaluation-chart-tick line { stroke: var(--line); stroke-width: 1; }
+.evaluation-chart-tick text, .evaluation-chart .evaluation-chart-unit { fill: var(--muted); font-size: 11px; }
+.evaluation-chart-bar text { font-weight: 550; font-variant-numeric: tabular-nums; }
+.evaluation-chart .evaluation-chart-category { font-size: 13px; }
 .evaluation-table { font-variant-numeric: tabular-nums; }
 .evaluation-scroll { max-width: 100%; }
 #evaluation-content, #evaluation-content section { min-width: 0; }
@@ -66,6 +79,7 @@
 .evaluation-pagination button:disabled { opacity: .4; cursor: default; }
 @media (max-width: 640px) {
   #evaluation-view > .panel { padding: 16px; }
+  .evaluation-chart { padding: 16px 8px 4px; }
   .evaluation-controls, .evaluation-controls label { width: 100%; }
   .evaluation-sample summary .muted { margin-left: 0; width: 100%; }
   .evaluation-sample-body { padding: 8px 0; }

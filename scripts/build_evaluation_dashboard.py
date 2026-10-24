@@ -15,7 +15,7 @@ from benchmark_competition500 import ranking_metrics, risk_metrics  # noqa: E402
 
 RUNS = ROOT / "outputs/competition_upgrade_20261019/runs"
 DEST = ROOT / "reports/evaluation_dashboard/evaluation.json"
-SELECTED = "status_20261024_baseline"
+SELECTED = "query_20261024_candidate_final"
 STATES = ("risk", "no_clear_risk", "insufficient_information")
 
 
@@ -36,9 +36,10 @@ def main():
     inputs = {row["query_id"]: row for row in rows(data / "test.jsonl")}
     gold = {row["query_id"]: row for row in rows(data / "reference/labels.jsonl")}
     qrels = {row["query_id"]: row["grades"] for row in rows(data / "reference/qrels_test.jsonl")}
-    comparison_path = ROOT / "reports/information_sufficiency_20261024/comparison.json"
+    comparison_path = ROOT / "reports/query_optimization_20261024/comparison.json"
     comparison = read(comparison_path)
-    original = comparison["runs"]["baseline"]
+    original = comparison["runs"]["candidate"]
+    assert original["run"] == SELECTED
     labels = list(original["risk"]["per_label"])
     sources = {comparison_path.relative_to(ROOT).as_posix(): digest(comparison_path.read_bytes())}
     run_dir = RUNS / original["run"]
@@ -134,10 +135,11 @@ def main():
     ]
     payload = {
         "available": True,
-        "version": "finrisk-evaluation-current-20261024-v2",
+        "version": "finrisk-evaluation-acceptance-20261024-v3",
         "evaluated_on": "2026-10-24",
         "selected_run": SELECTED,
         "selected_mode": "deepseek_adaptive",
+        "measurement": {"kind": "release_acceptance", "label": "发布验收", "run": SELECTED},
         "algorithm_revision": "41f2765780c71d740eed57e17fe8b64885cfb9b4",
         "knowledge_version": "finrisk-full-20261024",
         "dataset": {
@@ -156,7 +158,8 @@ def main():
             "longtext_screening": True,
         },
         "notes": [
-            "评测日期为 2026-10-24，使用同一批 200 条 Query；参考由 Codex 自复核，非专家金标。",
+            "采用当前启用算法的 2026-10-24 发布验收记录，使用同一批 200 条 Query；"
+            "参考由 Codex 自复核，非专家金标。",
             "无大模型对照采用本地规则与轻量模型，仅比较风险识别；检索结果采用当前启用配置单独展示。",
             "检索在 500 案例闭池内评测，187 条有强相关案例，13 条无强相关案例。",
             "本次为单次真实 API 工程回归，模型输出存在波动；900 字及以上仅 1 条样本。",
