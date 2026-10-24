@@ -135,6 +135,7 @@ class CaseRepository:
         )
         return (
             base,
+            self.settings.case_kb_root / "partitions/official_crawl" / filename,
             *(
                 self.settings.source_root(origin) / filename
                 for origin in ("official_crawl", "web_ingestion")
@@ -148,10 +149,15 @@ class CaseRepository:
     def _read_snapshot(self) -> None:
         if not self.settings.cases_path.is_file():
             raise FileNotFoundError(f"案例主表不存在: {self.settings.cases_path}")
+        aliases = self.settings.case_kb_root / "source_aliases.json"
+        alias_data = json.loads(aliases.read_text("utf-8")) if aliases.is_file() else {}
+        suppressed = set(alias_data.get("suppressed_file_ids", []))
+        self._case_aliases = alias_data.get("case_ids", {})
         records = {
             str(record["case_id"]): record
             for path in self._paths("cases.jsonl")
             for record in _read_jsonl(path)
+            if record.get("file_id") not in suppressed
         }
         overrides = self.settings.incremental_cases_root / "status_overrides.json"
         if overrides.is_file():
@@ -167,7 +173,9 @@ class CaseRepository:
             self._source_records = (
                 {
                     str(row["case_id"]): row
-                    for row in _read_jsonl(self.settings.case_data_dir / "source_records.jsonl")
+                    for path in self._paths("source_records.jsonl")
+                    for row in _read_jsonl(path)
+                    if row.get("file_id") not in suppressed
                 }
                 if self.settings.full_corpus
                 else {}
@@ -183,7 +191,11 @@ class CaseRepository:
             manifest_meta = _read_manifest_meta(self.settings.manifest_path)
             self._data_version = manifest_meta.get("data_version")
             self._latest_crawl_at = manifest_meta.get("latest_crawl_at")
-            self._latest_penalty_date = manifest_meta.get("latest_penalty_date")
+            self._latest_penalty_date = max(
+                [manifest_meta.get("latest_penalty_date", "")]
+                + [str(value) for record in records.values()
+                   if (value := _as_date(record.get("penalty_date"))) is not None]
+            ) or None
             self._revision += 1
             self._loaded_stamp = self._stamp()
 
@@ -276,7 +288,7 @@ class CaseRepository:
     def get_case(self, case_id: str) -> CaseDetail:
         self._ensure_fresh()
         record = self._record(case_id)
-        return self._to_detail(record, self._case_chunks(case_id))
+        return self._to_detail(record, self._case_chunks(str(record["case_id"])))
 
     def get_summary(self, case_id: str) -> CaseSummary:
         return self._to_summary(self._record(case_id))
@@ -515,6 +527,9 @@ class CaseRepository:
         with self._lock, FileLock(self.settings.incremental_cases_root / ".write.lock"):
             self.reload()
             record = dict(self._record(case_id))
+            case_id = str(record["case_id"])
+            if active and record.get("retrieval_disposition") in {"archive_only", "scope_review"}:
+                raise ValueError("该来源需先完成文书类型或保险范围审核，不能直接启用检索")
             record["retrieval_status"] = "active" if active else "inactive"
             record["updated_at"] = datetime.now(UTC).date().isoformat()
             flags = [str(value) for value in _as_list(record.get("quality_flags"))]
@@ -522,20 +537,10 @@ class CaseRepository:
             record["quality_flags"] = list(dict.fromkeys([*flags, marker]))
             updated = dict(self._records)
             updated[case_id] = record
-            group = _source_group(record)
-            if group == "original":
-                path = self.settings.incremental_cases_root / "status_overrides.json"
-                overrides = json.loads(path.read_text("utf-8")) if path.is_file() else {}
-                overrides[case_id] = record["retrieval_status"]
-                temporary = path.with_suffix(".json.tmp")
-                temporary.write_text(json.dumps(overrides, ensure_ascii=False), encoding="utf-8")
-                os.replace(temporary, path)
-            else:
-                root = self.settings.source_root(group)
-                _write_jsonl_atomic(
-                    root / "cases.jsonl", (r for r in updated.values() if _source_group(r) == group)
-                )
-                self._refresh_manifest(root)
+            path = self.settings.incremental_cases_root / "status_overrides.json"
+            overrides = json.loads(path.read_text("utf-8")) if path.is_file() else {}
+            overrides[case_id] = record["retrieval_status"]
+            _write_json_atomic(path, overrides)
             self._records = updated
             self._revision += 1
             self._loaded_stamp = self._stamp()
@@ -630,6 +635,7 @@ class CaseRepository:
         return tuple(dict.fromkeys(labels)) or self.risk_tags
 
     def _record(self, case_id: str) -> dict[str, object]:
+        case_id = self._case_aliases.get(case_id, case_id)
         record = self._records.get(case_id) or self._source_records.get(case_id)
         if record is None:
             raise CaseNotFoundError(case_id)
@@ -672,6 +678,16 @@ class CaseRepository:
             is_user_managed=_source_group(record) != "original",
             document_id=fid,
             subject_case_count=max(1, len(self._cases_by_file.get(fid, []))),
+            document_kind=str(record.get("document_kind") or "penalty"),
+            decision_status=str(record.get("decision_status") or "not_individually_verified"),
+            insurance_relevance=True
+            if record.get("insurance_relevance") is True
+            else False
+            if record.get("insurance_relevance") is False
+            else None,
+            review_status=str(record.get("review_status") or "pending"),
+            retrieval_disposition=_optional_string(record.get("retrieval_disposition")),
+            scope_assessment=dict(_as_dict(record.get("scope_assessment")) or {}),
         )
 
     def _to_detail(

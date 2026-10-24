@@ -99,7 +99,9 @@ class AppSettings:
             project_root=PROJECT_ROOT,
             case_kb_root=_resolve_path(
                 os.getenv("FINRISK_CASE_KB_ROOT"),
-                knowledge_root / "finrisk_v2_1_20261018",
+                knowledge_root / "finrisk_full_20261024"
+                if (knowledge_root / "finrisk_full_20261024/manifest.json").is_file()
+                else knowledge_root / "finrisk_v2_1_20261018",
             ),
             risk_keyword_path=_resolve_path(
                 os.getenv("FINRISK_RISK_KEYWORD_PATH"),
@@ -225,6 +227,9 @@ class AppSettings:
     @property
     def additional_evidence_databases(self) -> tuple[Path, ...]:
         return tuple(
-            self.source_root(origin) / "evidence_registry.sqlite3"
-            for origin in ("official_crawl", "web_ingestion")
+            [self.case_kb_root / "partitions/official_crawl/evidence_registry.sqlite3"]
+            + [
+                self.source_root(origin) / "evidence_registry.sqlite3"
+                for origin in ("official_crawl", "web_ingestion")
+            ]
         )

@@ -312,6 +312,9 @@ class CaseRetrievalService:
                     case_id,
                     MatchedCase(
                         case_id=case_id,
+                        document_kind=summary.document_kind,
+                        decision_status=summary.decision_status,
+                        source_group=summary.source_group,
                         file_id=summary.document_id
                         if summary.document_id and summary.document_id.startswith("F")
                         else None,
@@ -445,6 +448,9 @@ class CaseRetrievalService:
                     case_id,
                     MatchedCase(
                         case_id=case_id,
+                        document_kind=summary.document_kind,
+                        decision_status=summary.decision_status,
+                        source_group=summary.source_group,
                         case_title=summary.case_title,
                         penalty_doc_no=summary.penalty_doc_no,
                         violation_behavior=summary.violation_behavior,

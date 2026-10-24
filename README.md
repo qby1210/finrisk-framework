@@ -1,9 +1,10 @@
 # FinRisk 保险营销合规工作台
 
 当前版本使用 Pi Agent、DeepSeek 风险复核及 Qwen 全量文档/query 向量。
-基础知识库包含 **9,639 份处罚文书、15,620 个主体案例、27 类标签**。
-2026-10-22 部署快照另含 366 份官网增量文书，合计 **10,005 份文书、15,986 个主体案例**。
-原始 10,000 份 PDF 位于 `raw_pdfs/`。旧案例库与一次性实验文件已清理。
+2026-10-24 知识库包含 **10,000 份赛事文书、866 份官网文书、18,092 个主体案例、27 类标签**。
+共 10,866 份文书；列表按文书计数，主体案例单独统计。官网分区包含仅归档和范围待核材料。
+原始 10,000 份 PDF 位于 `raw_pdfs/`，均完成全文与指纹绑定，原件不改写。
+本次发布的数据、查重、范围分流及检索口径见[知识库更新记录](docs/knowledge_update_20261024.md)。
 GitHub分发源码、新评测集和冻结结果；密钥、原始PDF和全量索引保存在本地。
 已部署到 yuyunCloud：[打开工作台](http://156.239.2.239/)。保留 80 端口转发至本机 8000，
 部署、验证及回滚方式见[服务器部署记录](docs/deployment_yuyuncloud_20261022.md)。
@@ -42,7 +43,9 @@ Linux 对应 `install.sh`、`start.sh`、`verify.sh`。运行需要 Python 3.11+
 .venv\Scripts\python.exe scripts/verify_delivery.py
 ```
 
-基础知识库下载固定上游Git提交；P0从随仓库分发的约2 MB运行数据恢复，均校验指纹。原始PDF另放入`raw_pdfs/`，用于原件预览。
+以上是旧版资产的恢复链路。本版使用上游 `knowledge-full-20261024` Release，按
+`configs/knowledge_full_20261024.json` 校验六个附件，再运行 `scripts/sync_full_knowledge.py`
+生成新版目录，具体命令见更新记录。原始 PDF 另放入 `raw_pdfs/`。
 
 ## 检索配置
 
@@ -51,7 +54,7 @@ Linux 对应 `install.sh`、`start.sh`、`verify.sh`。运行需要 Python 3.11+
 | `FINRISK_RERANK_PROVIDER` | `none` / `cloud` / `deepseek` | 保留融合排序 / Qwen 重排 / Pi-DeepSeek 列表重排 |
 | `FINRISK_RETRIEVAL_TIMING` | `post` / `pre` / `adaptive` | 判定后检索 / 判定前注入 / 自适应前后融合 |
 | `FINRISK_EMBEDDING_PROVIDER` | `cloud` / `bge` / `local` | 同模型 Qwen 向量 / 可选本地 BGE / 本地 TF-IDF |
-| `FINRISK_CASE_KB_ROOT` | 本地目录 | 默认 `data/processed/knowledge/finrisk_v2_1_20261018` |
+| `FINRISK_CASE_KB_ROOT` | 本地目录 | 当前 `data/processed/knowledge/finrisk_full_20261024` |
 
 当前默认 `deepseek` 重排、`adaptive` 检索时机，由新开发集综合评分冻结。
 三种重排和Pre、Post、自适应全部可在Web按次切换；本地候选模型及示例使用400条开发Query。
@@ -74,7 +77,7 @@ Linux 对应 `install.sh`、`start.sh`、`verify.sh`。运行需要 Python 3.11+
 | `src/`、`agent_runtime/` | 应用、WebUI、Pi worker 与原生工具提交 |
 | `tests/` | 后端、Pi 协议、前端原文定位回归测试 |
 | `configs/` | 配置说明、重建知识库所需的 27 类风险域映射 |
-| `data/processed/knowledge/finrisk_v2_1_20261018/` | 当前新库、证据注册库、固定上游资产及回源材料 |
+| `data/processed/knowledge/finrisk_full_20261024/` | 当前原始库、静态官网分区、证据注册库、版本锁及原件绑定 |
 | `data/cache/dense/` | 活跃全量 Qwen 索引与断点重建检查点 |
 | `data/eval/competition500_v1/` | 500案例、400开发Query、100开发核对子集、200源文书隔离测试Query |
 | `data/runtime_knowledge/` | 随源码分发的P0法规、机制及原文快照，不含旧代码和旧评测 |

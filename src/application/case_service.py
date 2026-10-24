@@ -14,6 +14,7 @@ from domain.knowledge_models import CaseDetail, CaseIngestionResult, CaseListPag
 from extraction import FileExtractor
 from llm import LLMClient
 from offline.case_ingestion import IncrementalCaseBuilder, load_risk_domain_mapping
+from offline.insurance_relevance import evaluate_insurance_scope
 from risk.detection import RuleRiskDetector
 from settings import AppSettings
 from storage.case_repository import CaseRepository
@@ -97,6 +98,15 @@ class CaseManagementService:
             sha256(re.sub(r"\s+", "", extraction.full_text).encode()).hexdigest(),
         )
         for artifact in artifacts:
+            scope = evaluate_insurance_scope(
+                extraction.full_text,
+                party_name=str(artifact.record.get("party_name") or ""),
+                violation_behavior=str(artifact.record.get("violation_behavior") or ""),
+            )
+            artifact.record.update(scope_assessment=scope, human_approved=False)
+            if scope["route"] == "scope_review":
+                artifact.record.update(retrieval_status="inactive", review_status="pending")
+                artifact.record["retrieval_disposition"] = "scope_review"
             artifact.record.update(source_metadata)
             artifact.record.update(
                 case_origin=origin, source_group=origin, raw_source_file=logical_path

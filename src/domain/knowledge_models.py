@@ -32,6 +32,12 @@ class CaseSummary(ContractModel):
     is_user_managed: bool = False
     document_id: str | None = None
     subject_case_count: int = Field(default=1, ge=1)
+    document_kind: str = "penalty"
+    decision_status: str = "not_individually_verified"
+    insurance_relevance: bool | None = None
+    review_status: str = "pending"
+    retrieval_disposition: str | None = None
+    scope_assessment: dict[str, object] = Field(default_factory=dict)
 
 
 class EvidenceChunk(ContractModel):
@@ -96,6 +102,10 @@ class MatchedCase(ContractModel):
     """一条 Query 命中的案例证据。"""
 
     case_id: str
+    document_kind: str = "penalty"
+    decision_status: str = "not_individually_verified"
+    source_group: str = "original"
+    human_approved: bool = False
     case_title: str | None = None
     penalty_doc_no: str | None = None
     violation_behavior: str

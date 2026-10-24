@@ -36,6 +36,7 @@ raw_pdfs/
 outputs/project_cleanup_20261018/
 outputs/runtime/
 outputs/knowledge_build/
+outputs/kb_update_20261024/
 release/
 
 # Real-API traces, local backups and intermediate annotations stay on this machine.

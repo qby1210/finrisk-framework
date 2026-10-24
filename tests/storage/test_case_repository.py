@@ -94,6 +94,62 @@ def test_repository_reads_and_retrieves_existing_case(tmp_path: Path) -> None:
     assert service.search("保证收益百分之十", top_k=3, risk_tags={"赠送利益"}) == []
 
 
+def test_release_partition_merges_sources_and_resolves_legacy_aliases(tmp_path):
+    settings = _settings(tmp_path)
+    root = settings.case_kb_root
+    original = next(
+        iter(
+            __import__("json").loads(line)
+            for line in settings.cases_path.read_text("utf-8").splitlines()
+        )
+    )
+    original.update(file_id="F1")
+    _write_jsonl(settings.cases_path, [original])
+    static = root / "partitions/official_crawl"
+    web = {
+        **original,
+        "case_id": "WEB1",
+        "file_id": "W1",
+        "source_group": "official_crawl",
+        "case_origin": "official_crawl",
+    }
+    _write_jsonl(static / "cases.jsonl", [web])
+    _write_jsonl(
+        static / "case_chunks.jsonl",
+        [{"chunk_id": "WU", "case_id": "WEB1", "chunk_type": "fact", "chunk_text": "保证收益"}],
+    )
+    _write_jsonl(
+        settings.case_data_dir / "source_records.jsonl", [{**original, "case_id": "F1:SOURCE"}]
+    )
+    _write_jsonl(
+        settings.source_root("official_crawl") / "cases.jsonl",
+        [{**web, "case_id": "OLD", "file_id": "OLD-F"}],
+    )
+    (root / "source_aliases.json").write_text(
+        json.dumps({"suppressed_file_ids": ["OLD-F"], "case_ids": {"OLD": "WEB1"}}),
+        encoding="utf-8",
+    )
+    repository = CaseRepository(settings)
+    assert repository.statistics().base_cases == 1
+    assert repository.statistics().crawled_cases == 1
+    assert repository.get_case("OLD").case_id == "WEB1"
+    assert repository.get_case("OLD").evidence_chunks[0].chunk_id == "WU"
+    before = (static / "cases.jsonl").read_bytes()
+    repository.set_retrieval_status("OLD", active=False)
+    assert (static / "cases.jsonl").read_bytes() == before
+    assert CaseRepository(settings).get_case("WEB1").retrieval_status == "inactive"
+
+
+def test_unreviewed_scope_cannot_be_enabled_with_a_status_override(tmp_path):
+    settings = _settings(tmp_path)
+    record = json.loads(settings.cases_path.read_text("utf-8"))
+    record.update(retrieval_disposition="archive_only", retrieval_status="inactive")
+    _write_jsonl(settings.cases_path, [record])
+    repository = CaseRepository(settings)
+    with pytest.raises(ValueError, match="范围审核"):
+        repository.set_retrieval_status("C001", active=True)
+
+
 def test_daily_collected_count_deduplicates_documents_and_uses_local_date(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     entries = [

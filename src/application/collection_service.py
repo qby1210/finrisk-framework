@@ -11,7 +11,7 @@ from typing import Any
 
 from application.case_service import CaseManagementService
 from application.retrieval_service import CaseRetrievalService
-from offline.penalty_crawler.filter import BANK_PARTY_RE
+from offline.insurance_relevance import evaluate_insurance_scope
 from offline.penalty_crawler.nfra import collect_window
 from offline.penalty_crawler.polite_http import PoliteHTTPClient, atomic_json
 from settings import AppSettings
@@ -20,7 +20,7 @@ from storage.file_lock import FileLock
 
 SHANGHAI = timezone(timedelta(hours=8), "Asia/Shanghai")
 LOGGER = logging.getLogger(__name__)
-FINISHED = {"ingested", "duplicate", "non_insurance", "bank_party"}
+FINISHED = {"ingested", "duplicate", "non_insurance", "bank_party", "scope_review"}
 JsonObject = dict[str, Any]
 
 
@@ -118,6 +118,11 @@ class CollectionService:
                 ),
                 "pending_parts": self._pending(state),
                 "pending_documents": len(state.get("pending_details", {})),
+                "scope_review_parts": sum(
+                    part.get("status") == "scope_review"
+                    for document in state.get("documents", {}).values()
+                    for part in document.get("parts", [])
+                ),
                 "retry_at": state.get("retry_at"),
                 "limits": {
                     "pages_per_column": self.settings.collection_max_pages,
@@ -292,11 +297,10 @@ class CollectionService:
                             errors.append("待入库文书原件缺失")
                             continue
                         text = path.read_text("utf-8")
-                        if "保险" not in text:
-                            part["status"] = "non_insurance"
-                            filtered += 1
-                        elif BANK_PARTY_RE.search(text):
-                            part["status"] = "bank_party"
+                        scope = evaluate_insurance_scope(text)
+                        part["scope_assessment"] = scope
+                        if scope["route"] == "scope_review":
+                            part["status"] = "scope_review"
                             filtered += 1
                         else:
                             attempts += 1
@@ -317,6 +321,7 @@ class CollectionService:
                                         ),
                                         "source_content_sha256": part["sha256"],
                                         "collected_at": now.isoformat(),
+                                        "scope_assessment": scope,
                                     },
                                 )
                                 part.update(

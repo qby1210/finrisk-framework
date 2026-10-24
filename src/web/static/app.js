@@ -728,6 +728,16 @@ function caseSourceName(item) {
   return ({ original: "原始知识库", official_crawl: "官网采集", web_ingestion: "网页录入" })[item.source_group] || "原始知识库";
 }
 
+function caseRetrievalStatus(item) {
+  if (item.retrieval_disposition === "archive_only") return "仅归档";
+  if (item.retrieval_disposition === "scope_review") return "范围待核";
+  return item.retrieval_status === "active" ? "启用" : "已停用";
+}
+
+function caseDocumentKind(item) {
+  return ({ penalty: "处罚材料", pre_penalty_notice: "拟处罚公告", non_penalty: "许可等非处罚材料", penalty_delivery_notice: "处罚送达公告" })[item.document_kind] || item.document_kind;
+}
+
 function renderCaseList() {
   const result = state.caseResult;
   el("#case-count-label").textContent = `共 ${result.total.toLocaleString("zh-CN")} 份文书 · 第 ${result.page} / ${Math.max(result.total_pages, 1)} 页`;
@@ -746,7 +756,7 @@ function renderCaseList() {
           <span>${escapeHtml(item.regulator || "监管机构未记录")}</span>
           <span>${formatDate(item.penalty_date)}</span>
           <span class="origin-chip">${caseSourceName(item)}</span>
-          <span class="status-chip ${escapeHtml(item.retrieval_status)}">${item.retrieval_status === "active" ? "启用" : "已停用"}</span>
+          <span class="status-chip ${escapeHtml(item.retrieval_status)}">${caseRetrievalStatus(item)}</span>
         </div>
       </article>
     `).join("");
@@ -842,7 +852,10 @@ function renderCaseDetail(item) {
       <div><dt>机构类型</dt><dd>${escapeHtml(item.institution_type || "—")}</dd></div>
       <div><dt>发布日期</dt><dd>${formatDate(item.publish_date)}</dd></div>
       <div><dt>数据来源</dt><dd>${caseSourceName(item)}</dd></div>
-      <div><dt>检索状态</dt><dd>${item.retrieval_status === "active" ? "启用" : "已停用"}</dd></div>
+      <div><dt>检索状态</dt><dd>${caseRetrievalStatus(item)}</dd></div>
+      <div><dt>文书类型</dt><dd>${escapeHtml(caseDocumentKind(item))}</dd></div>
+      <div><dt>审核状态</dt><dd>模型候选 · 待人工核对</dd></div>
+      ${item.decision_status && item.decision_status !== "not_individually_verified" ? `<div><dt>决定状态</dt><dd>${escapeHtml(item.decision_status)}</dd></div>` : ""}
     </dl>
     <section class="detail-section"><h3>违法事实</h3><p>${escapeHtml(item.violation_behavior || "—")}</p></section>
     <section class="detail-section"><h3>处罚内容</h3><p>${escapeHtml(item.penalty_content || "—")}</p></section>
@@ -853,7 +866,7 @@ function renderCaseDetail(item) {
     ${(item.related_cases || []).length ? `<section class="detail-section"><h3>同文书其他主体</h3>${item.related_cases.map(subject => `<article><button class="quiet-button" type="button" data-related-case="${escapeHtml(subject.case_id)}">${escapeHtml(subject.party_name || subject.case_title || subject.case_id)}</button><p>${escapeHtml(subject.violation_behavior)}</p></article>`).join("")}</section>` : ""}
     <section class="detail-section"><h3>证据切片 <small>${item.evidence_chunks.length}</small></h3><div class="evidence-list">${evidence || '<p class="muted">暂无证据切片。</p>'}</div></section>
     <div class="drawer-actions">
-      <button class="${item.retrieval_status === "active" ? "danger-button" : "primary-button"}" id="toggle-case-status" type="button">
+      <button class="${item.retrieval_status === "active" ? "danger-button" : "primary-button"}" id="toggle-case-status" type="button" ${["archive_only", "scope_review"].includes(item.retrieval_disposition) ? "disabled" : ""}>
         ${item.retrieval_status === "active" ? "停用案例" : "恢复案例"}
       </button>
       <small>${item.retrieval_status === "active" ? "停用后不再参与检索，但数据和原文仍保留。" : "恢复后将重新参与 Query 案例匹配。"}</small>

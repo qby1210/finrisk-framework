@@ -271,6 +271,7 @@ async def index_page() -> FileResponse:
 @app.get("/api/health")
 async def health(case_service: CaseDependency) -> dict[str, object]:
     statistics = case_service.statistics()
+    release_manifest = json.loads(get_settings().manifest_path.read_text("utf-8"))
     llm_client = get_llm_client()
     evidence_service = get_evidence_service()
     return {
@@ -306,7 +307,9 @@ async def health(case_service: CaseDependency) -> dict[str, object]:
         },
         "knowledge_versions": evidence_service.versions if evidence_service else {},
         "knowledge_release": {
-            "upstream_revision": "7b065c2712592763ea1c420e00cd239c0fb047ed",
+            "upstream_revision": release_manifest.get("upstream_revision"),
+            "raw_pdf_count": release_manifest.get("raw_pdf_count"),
+            "partitions": release_manifest.get("partitions", {}),
             "article_count": len(evidence_service.articles),
             "mechanism_count": len(evidence_service.p0.cards) if evidence_service.p0 else 0,
             "full_projection": get_settings().full_corpus,
@@ -508,6 +511,8 @@ async def set_case_status(
         return service.set_active(case_id, active=payload.active)
     except CaseNotFoundError as error:
         raise HTTPException(status_code=404, detail="案例不存在") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.delete("/api/cases/{case_id}", response_model=CaseDetail)

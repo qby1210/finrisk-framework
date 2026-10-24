@@ -34,7 +34,8 @@ class KnowledgeEvidenceService:
         bundle = root / "source_bundle"
         handoff = bundle / "releases/2026-10-18/data/handoff_scope"
         expected = json.loads((handoff / "version_lock.json").read_text(encoding="utf-8"))
-        if self.versions != expected or set(expected) != {
+        base_versions = manifest.get("base_knowledge_versions", self.versions)
+        if base_versions != expected or set(expected) != {
             "content",
             "projection",
             "articles",
@@ -42,6 +43,23 @@ class KnowledgeEvidenceService:
             "scope",
         }:
             raise ValueError("知识库五类版本锁不一致")
+        if "base_knowledge_versions" in manifest:
+            lock_path = root / "release_lock.json"
+            if (
+                hashlib.sha256(lock_path.read_bytes()).hexdigest()
+                != manifest["release_lock_sha256"]
+            ):
+                raise ValueError("知识库发布版本锁指纹不一致")
+            lock = json.loads(lock_path.read_text("utf-8"))
+            if lock["knowledge_versions"] != self.versions:
+                raise ValueError("知识库发布版本不一致")
+            for name, digest in lock["files"].items():
+                path = (root / name).resolve()
+                if not path.is_relative_to(root.resolve()):
+                    raise ValueError("知识库发布路径越界")
+                with path.open("rb") as stream:
+                    if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
+                        raise ValueError("知识库发布资产指纹不一致: " + name)
         self.database = root / "evidence_registry.sqlite3"
         self.scope_units = {r["unit_id"]: r for r in _rows(handoff / "scope_overlays.jsonl")}
         self.scope_spans = {r["span_id"]: r for r in _rows(handoff / "spans.jsonl")}
@@ -59,7 +77,7 @@ class KnowledgeEvidenceService:
         if p0_root.is_dir():
             from application.knowledge_release import P0KnowledgeRelease
 
-            self.p0 = P0KnowledgeRelease(p0_root, self.versions)
+            self.p0 = P0KnowledgeRelease(p0_root, base_versions)
             self.articles = self.p0.articles
             self.law_registry = self.p0.sources
         self._law_index = SparseRetrievalIndex(

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from domain.file_models import FileExtractionResult
 from llm import ChatMessage, JsonChatRequest, JsonChatResponse, LLMClient, LLMProviderError
+from offline.insurance_relevance import evaluate_insurance_scope
 from risk.detection import RuleRiskDetector
 
 
@@ -304,7 +305,22 @@ class IncrementalCaseBuilder:
         """One file may contain several separately penalized parties; retain their own facts."""
         if self.llm_client is None:
             artifact = await self.build(extraction, source_file=source_file)
-            return [artifact] if artifact.record["is_insurance_related"] else []
+            scope = evaluate_insurance_scope(
+                extraction.full_text,
+                party_name=str(artifact.record.get("party_name") or ""),
+                violation_behavior=str(artifact.record.get("violation_behavior") or ""),
+            )
+            artifact.record["scope_assessment"] = scope
+            artifact.record["is_insurance_related"] = scope["relevance"] == "insurance"
+            if scope["route"] == "scope_review":
+                artifact.record.update(
+                    retrieval_status="inactive",
+                    review_status="pending",
+                    retrieval_disposition="scope_review",
+                    risk_tags=[],
+                    risk_tag_basis=[],
+                )
+            return [artifact]
         request = JsonChatRequest(
             task="case_ingestion",
             temperature=0,
@@ -349,7 +365,8 @@ class IncrementalCaseBuilder:
                 outputs = [_CaseLLMOutput.model_validate(r) for r in raw]
                 selected = [
                     _bind_source_quotes(item, extraction.full_text)
-                    for item in outputs if item.is_insurance_related is True
+                    for item in outputs
+                    if item.is_insurance_related is True
                 ]
                 break
             except ValueError as error:
@@ -357,16 +374,24 @@ class IncrementalCaseBuilder:
                     raise LLMProviderError(
                         "案例抽取结果未能对应原文，请重新录入或核对文件文字"
                     ) from error
-                request = request.model_copy(update={"messages": [
-                    *request.messages,
-                    ChatMessage(
-                        role="assistant", content=json.dumps(response.data, ensure_ascii=False)
-                    ),
-                    ChatMessage(role="user", content=(
-                        "上次结果未通过原文校验，请重新抽取。只接受原文中连续存在的主体和事实；"
-                        "可以忽略排版空白，不能改变数字、标点或用词。不合并不连续的引文。"
-                    )),
-                ]})
+                request = request.model_copy(
+                    update={
+                        "messages": [
+                            *request.messages,
+                            ChatMessage(
+                                role="assistant",
+                                content=json.dumps(response.data, ensure_ascii=False),
+                            ),
+                            ChatMessage(
+                                role="user",
+                                content=(
+                                    "上次结果未通过原文校验，请重新抽取。只接受原文中连续存在的主体和事实；"
+                                    "可以忽略排版空白，不能改变数字、标点或用词。不合并不连续的引文。"
+                                ),
+                            ),
+                        ]
+                    }
+                )
         artifacts = []
         for index, item in enumerate(selected, 1):
             artifacts.append(
